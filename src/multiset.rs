@@ -172,7 +172,7 @@ impl<T: Ord> FromIterator<T> for Multiset<T> {
     }
 }
 
-#[cfg(test)]
+#[cfg(feature = "quickcheck")]
 impl<T: quickcheck::Arbitrary + Ord> quickcheck::Arbitrary for Multiset<T> {
     #[inline]
     fn arbitrary(g: &mut quickcheck::Gen) -> Self {

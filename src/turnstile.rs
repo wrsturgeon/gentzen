@@ -104,7 +104,7 @@ impl core::fmt::Display for Turnstile {
     }
 }
 
-#[cfg(test)]
+#[cfg(feature = "quickcheck")]
 impl quickcheck::Arbitrary for Turnstile {
     #[inline]
     fn arbitrary(g: &mut quickcheck::Gen) -> Self {
@@ -135,7 +135,7 @@ impl quickcheck::Arbitrary for Turnstile {
 //     Split(Rc<Trace>),
 // }
 
-// #[cfg(test)]
+// #[cfg(feature = "quickcheck")]
 // impl quickcheck::Arbitrary for FamilyTree {
 //     #[inline]
 //     #[allow(clippy::same_functions_in_if_condition)]
@@ -190,6 +190,7 @@ impl PartialOrd for Trace {
 }
 
 impl Ord for Trace {
+    #[inline]
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         match self.current.cmp(&other.current) {
             diff @ (core::cmp::Ordering::Less | core::cmp::Ordering::Greater) => diff,
@@ -208,6 +209,9 @@ impl core::hash::Hash for Trace {
 
 impl Trace {
     /// Number of traced turnstiles before this one.
+    /// # Panics
+    /// If we overflow a `usize` (many other things, including maybe your death, will happen first).
+    #[must_use]
     #[inline(always)]
     pub fn age(&self) -> usize {
         let mut ancestor = &self.history;
@@ -244,6 +248,7 @@ impl Trace {
 }
 
 impl core::fmt::Display for Trace {
+    #[inline]
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         core::fmt::Display::fmt(&self.current, f)
     }
@@ -251,6 +256,7 @@ impl core::fmt::Display for Trace {
 
 /// Convert to a linked list.
 #[inline]
+#[cfg(feature = "quickcheck")]
 fn rc_list(v: Vec<Turnstile>) -> Option<Rc<Trace>> {
     v.into_iter().fold(None, |history, current| {
         Some(Rc::new(Trace { current, history }))
@@ -259,6 +265,7 @@ fn rc_list(v: Vec<Turnstile>) -> Option<Rc<Trace>> {
 
 /// Convert from a linked list.
 #[inline]
+#[cfg(feature = "quickcheck")]
 fn from_rc_list(mut history: Option<&Rc<Trace>>) -> Vec<Turnstile> {
     let mut acc = vec![];
     while let Some(parent) = history {
@@ -268,7 +275,7 @@ fn from_rc_list(mut history: Option<&Rc<Trace>>) -> Vec<Turnstile> {
     acc
 }
 
-#[cfg(test)]
+#[cfg(feature = "quickcheck")]
 impl quickcheck::Arbitrary for Trace {
     #[inline]
     fn arbitrary(g: &mut quickcheck::Gen) -> Self {
@@ -360,7 +367,7 @@ impl Split {
     }
 }
 
-#[cfg(test)]
+#[cfg(feature = "quickcheck")]
 impl quickcheck::Arbitrary for Split {
     #[inline]
     fn arbitrary(g: &mut quickcheck::Gen) -> Self {

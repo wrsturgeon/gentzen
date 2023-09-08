@@ -20,5 +20,8 @@ categories = [
 [dependencies]
 # none
 
-[dev-dependencies]
-quickcheck = "1.0.3"
+# Optional dependencies:
+quickcheck = { version = "1.0.3", optional = true }
+
+[features]
+quickcheck = ["dep:quickcheck"]

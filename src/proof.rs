@@ -233,14 +233,6 @@ impl From<bool> for State {
     }
 }
 
-impl State {
-    /// Whether this is `State::True`.
-    #[inline(always)]
-    pub(crate) const fn proven(self) -> bool {
-        matches!(self, State::True)
-    }
-}
-
 /// Unsuccessful proof.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -249,10 +241,10 @@ pub enum Error {
     RanOutOfPaths,
 }
 
-/// Expansion: either the proof is done, we have another turnstile, or we have to prove two.
+/// Inference: either the proof is done, we have another turnstile, or we have to prove two.
 #[non_exhaustive]
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum Expansion {
+pub enum Inference {
     /// Proof is done: nothing above the inference line.
     Qed(Rc<Trace>),
     /// One turnstile above the inference line.
@@ -263,23 +255,145 @@ pub enum Expansion {
     Contradiction(Rc<Trace>),
 }
 
+impl Inference {
+    /// Update a proof in response to an inference.
+    #[inline]
+    #[allow(unsafe_code)]
+    #[allow(clippy::print_stdout)] // FIXME: remove `println!`s
+    #[allow(clippy::too_many_lines)] // FIXME
+    fn handle(
+        self,
+        seen: &mut HashMap<Turnstile, State>,
+        paths: &mut BinaryHeap<Reverse<Trace>>,
+        paused: &mut HashSet<Split>,
+        original: &Turnstile,
+        #[cfg(test)] visited: &mut HashSet<Rc<Trace>>,
+    ) -> bool {
+        match self {
+            Inference::Qed(history) => {
+                if cache_proof(
+                    seen,
+                    paused,
+                    &history,
+                    true,
+                    original,
+                    #[cfg(test)]
+                    visited,
+                )
+                .is_none()
+                {
+                    return true;
+                }
+            }
+            Inference::Contradiction(history) => {
+                if cache_proof(
+                    seen,
+                    paused,
+                    &history,
+                    false,
+                    original,
+                    #[cfg(test)]
+                    visited,
+                )
+                .is_none()
+                {
+                    return true;
+                }
+            }
+            Inference::Linear(trace) => add_if_new(seen, paths, trace),
+            Inference::Binary(split) => {
+                let Split {
+                    ref lhs, ref rhs, ..
+                } = split;
+                add_if_new(seen, paths, lhs.clone());
+                add_if_new(seen, paths, rhs.clone());
+                // SAFETY: Added to `seen` above.
+                match unsafe {
+                    (
+                        seen.get(&split.lhs.current).unwrap_unchecked(),
+                        seen.get(&split.rhs.current).unwrap_unchecked(),
+                    )
+                } {
+                    (&State::True, &State::True) => {
+                        let (sl, sr) = split.sort();
+                        println!("    Proved [ {sl}   {sr} ]");
+                        if cache_proof(
+                            seen,
+                            paused,
+                            &split.history,
+                            true,
+                            original,
+                            #[cfg(test)]
+                            visited,
+                        )
+                        .is_none()
+                        {
+                            return true;
+                        }
+                    }
+                    (&State::False, _) | (_, &State::False) => {
+                        let (sl, sr) = split.sort();
+                        println!("    Disproved [ {sl}   {sr} ]");
+                        if cache_proof(
+                            seen,
+                            paused,
+                            &split.history,
+                            false,
+                            original,
+                            #[cfg(test)]
+                            visited,
+                        )
+                        .is_none()
+                        {
+                            return true;
+                        }
+                    }
+                    _ => {
+                        println!("    Pausing {split}");
+                        let _ = paused.insert(split);
+                    }
+                }
+            }
+        }
+        false
+    }
+}
+
 /// Step through each turnstile in this proof and mark it with the provided state.
 #[inline]
 #[allow(unsafe_code)]
 #[allow(clippy::print_stdout)] // FIXME: remove `println!`s
 fn cache_proof(
     seen: &mut HashMap<Turnstile, State>,
-    paused: &HashSet<Split>,
+    paused: &mut HashSet<Split>,
     mut trace: &Rc<Trace>,
     truth: bool,
     original: &Turnstile,
-) -> Option<impl IntoIterator<Item = Split>> {
+    #[cfg(test)] visited: &mut HashSet<Rc<Trace>>,
+    // ) -> Option<impl IntoIterator<Item = Split>> {
+) -> Option<()> {
+    #[cfg(test)]
+    {
+        assert!(
+            !visited.contains(trace),
+            "`cache_proof` recursing on the same input: `trace = {trace}`",
+        );
+        let _ = visited.insert(Rc::clone(trace));
+    }
+    // TODO: Remove this `if` statement!
+    if matches!(
+        seen.get(&trace.current),
+        Some(&(State::False | State::True))
+    ) {
+        // return Some(HashSet::new());
+        return Some(());
+    }
     let state = truth.into();
     loop {
         println!(
             "    {}roved {}",
             if truth { "P" } else { "Disp" },
-            trace.current
+            trace.current,
         );
         if &trace.current == original {
             return None;
@@ -298,8 +412,8 @@ fn cache_proof(
             break;
         }
     }
-    let mut proven = HashSet::new();
-    for split in paused {
+    let mut remove = vec![];
+    for split in &*paused {
         // SAFETY: Always added to `seen` before `paused`.
         match unsafe {
             (
@@ -310,19 +424,39 @@ fn cache_proof(
             (&State::True, &State::True) => {
                 let (lhs, rhs) = split.sort();
                 println!("    Proved [ {lhs}   {rhs} ]");
-                let _ = proven.insert(split.clone());
-                proven.extend(cache_proof(seen, paused, &split.history, true, original)?);
+                remove.push((split.clone(), true));
             }
             (&State::False, _) | (_, &State::False) => {
                 let (lhs, rhs) = split.sort();
                 println!("    Disproved [ {lhs}   {rhs} ]");
-                let _ = proven.insert(split.clone());
-                proven.extend(cache_proof(seen, paused, &split.history, false, original)?);
+                remove.push((split.clone(), false));
             }
             _ => { /* fall through */ }
         }
     }
-    Some(proven)
+    for &(ref split, proven) in &remove {
+        let (lhs, rhs) = split.sort();
+        println!(
+            "    {}roved [ {lhs} {rhs} ]",
+            if proven { "P" } else { "Disp" },
+        );
+        assert!(
+            paused.remove(split),
+            "Trying to remove a value from `paused` that wasn't in it"
+        );
+    }
+    for (split, proven) in remove {
+        cache_proof(
+            seen,
+            paused,
+            &split.history,
+            proven,
+            original,
+            #[cfg(test)]
+            visited,
+        )?;
+    }
+    Some(())
 }
 
 /// Add this turnstile to the queue iff we haven't seen it before.
@@ -349,7 +483,6 @@ impl Ast {
     /// # Errors
     /// If we can't.
     #[inline]
-    #[allow(unsafe_code)]
     #[allow(clippy::print_stdout)] // FIXME: remove `println!`s
     pub fn prove(self) -> Result<(), Error> {
         let original = Turnstile::new(self);
@@ -363,83 +496,16 @@ impl Ast {
         }));
         while let Some(Reverse(path)) = paths.pop() {
             println!("Testing {path}");
-            for expansion in Rc::new(path).expand() {
-                match expansion {
-                    Expansion::Qed(history) => {
-                        match cache_proof(&mut seen, &paused, &history, true, &original) {
-                            None => return Ok(()),
-                            Some(proven) => {
-                                for split in proven {
-                                    let _ = paused.remove(&split);
-                                }
-                            }
-                        }
-                    }
-                    Expansion::Contradiction(history) => {
-                        match cache_proof(&mut seen, &paused, &history, false, &original) {
-                            None => return Ok(()),
-                            Some(proven) => {
-                                for split in proven {
-                                    let _ = paused.remove(&split);
-                                }
-                            }
-                        }
-                    }
-                    Expansion::Linear(trace) => add_if_new(&mut seen, &mut paths, trace),
-                    Expansion::Binary(split) => {
-                        let Split {
-                            ref lhs, ref rhs, ..
-                        } = split;
-                        add_if_new(&mut seen, &mut paths, lhs.clone());
-                        add_if_new(&mut seen, &mut paths, rhs.clone());
-                        // SAFETY: Added to `seen` above.
-                        match unsafe {
-                            (
-                                seen.get(&split.lhs.current).unwrap_unchecked(),
-                                seen.get(&split.rhs.current).unwrap_unchecked(),
-                            )
-                        } {
-                            (&State::True, &State::True) => {
-                                let (sl, sr) = split.sort();
-                                println!("    Proved [ {sl}   {sr} ]");
-                                match cache_proof(
-                                    &mut seen,
-                                    &paused,
-                                    &split.history,
-                                    true,
-                                    &original,
-                                ) {
-                                    None => return Ok(()),
-                                    Some(proven) => {
-                                        for proven_split in proven {
-                                            let _ = paused.remove(&proven_split);
-                                        }
-                                    }
-                                }
-                            }
-                            (&State::False, _) | (_, &State::False) => {
-                                let (sl, sr) = split.sort();
-                                println!("    Disproved [ {sl}   {sr} ]");
-                                match cache_proof(
-                                    &mut seen,
-                                    &paused,
-                                    &split.history,
-                                    false,
-                                    &original,
-                                ) {
-                                    None => return Ok(()),
-                                    Some(proven) => {
-                                        for proven_split in proven {
-                                            let _ = paused.remove(&proven_split);
-                                        }
-                                    }
-                                }
-                            }
-                            _ => { /* fall through */ }
-                        }
-                        println!("    Pausing {split}");
-                        let _ = paused.insert(split);
-                    }
+            for expansion in Rc::new(path).infer() {
+                if expansion.handle(
+                    &mut seen,
+                    &mut paths,
+                    &mut paused,
+                    &original,
+                    #[cfg(test)]
+                    &mut HashSet::new(),
+                ) {
+                    return Ok(());
                 }
             }
         }
@@ -451,19 +517,19 @@ impl Ast {
 impl Trace {
     /// All possible "next moves" in a sequent-calculus proof search.
     #[inline(always)]
-    pub(crate) fn expand(self: &Rc<Self>) -> Vec<Expansion> {
+    pub(crate) fn infer(self: &Rc<Self>) -> Vec<Inference> {
         if self.current.rhs.contains(&Ast::Top) {
-            return vec![Expansion::Qed(Rc::clone(self))];
+            return vec![Inference::Qed(Rc::clone(self))];
         }
         match self.current.rhs.only() {
-            Some(&Ast::One) => return vec![Expansion::Qed(Rc::clone(self))],
-            Some(&Ast::Bottom) => return vec![Expansion::Contradiction(Rc::clone(self))],
+            Some(&Ast::One) => return vec![Inference::Qed(Rc::clone(self))],
+            Some(&Ast::Bottom) => return vec![Inference::Contradiction(Rc::clone(self))],
             Some(_) | None => {}
         }
         match self.current.rhs.pair() {
             Some((&Ast::Dual(ref neg), pos) | (pos, &Ast::Dual(ref neg))) => {
                 if neg.as_ref() == pos {
-                    return vec![Expansion::Qed(Rc::clone(self))];
+                    return vec![Inference::Qed(Rc::clone(self))];
                 }
             }
             Some(_) | None => {}
@@ -474,24 +540,30 @@ impl Trace {
             .flat_map(|(ast, _)| {
                 let mut ablation = self.current.rhs.clone();
                 let _ = ablation.take(ast);
-                ast.expand(ablation, self)
+                ast.infer(ablation, self)
             })
             .collect()
     }
 
     /// Continue with a single turnstile above the inference line.
+    #[must_use]
     #[inline(always)]
-    pub fn one(self: &Rc<Self>, child: Multiset<Ast>) -> Expansion {
-        Expansion::Linear(Self {
+    pub fn one(self: &Rc<Self>, child: Multiset<Ast>) -> Inference {
+        #[cfg(test)]
+        self.assert_acyclic();
+        Inference::Linear(Self {
             current: Turnstile { rhs: child },
             history: Some(Rc::clone(self)),
         })
     }
 
     /// Continue with two children.
+    #[must_use]
     #[inline(always)]
-    pub fn two(self: &Rc<Self>, lhs: Multiset<Ast>, rhs: Multiset<Ast>) -> Expansion {
-        Expansion::Binary(Split {
+    pub fn two(self: &Rc<Self>, lhs: Multiset<Ast>, rhs: Multiset<Ast>) -> Inference {
+        #[cfg(test)]
+        self.assert_acyclic();
+        Inference::Binary(Split {
             lhs: Self {
                 current: Turnstile { rhs: lhs },
                 history: None,
@@ -503,17 +575,39 @@ impl Trace {
             history: Rc::clone(self),
         })
     }
+
+    #[cfg(test)]
+    fn assert_acyclic(self: &Rc<Self>) {
+        self.assert_acyclic_helper(&mut vec![]);
+    }
+
+    #[cfg(test)]
+    #[allow(clippy::arithmetic_side_effects)]
+    fn assert_acyclic_helper<'s>(self: &'s Rc<Self>, visited: &mut Vec<&'s Rc<Self>>) {
+        assert!(
+            !visited.contains(&self),
+            "Cyclic proof: {} {self}",
+            visited.iter_mut().fold(String::new(), |acc, trace| acc
+                + &trace.to_string()
+                + " -> ")
+        );
+        visited.push(self);
+        if let Some(ref trace) = self.history {
+            trace.assert_acyclic_helper(visited);
+        }
+    }
 }
 
 #[allow(clippy::multiple_inherent_impl)]
 impl Ast {
     /// All possible "next moves" in a sequent-calculus proof search.
     #[inline]
-    pub(crate) fn expand(
+    #[allow(clippy::todo)] // FIXME
+    pub(crate) fn infer(
         &self,
         context: Multiset<Ast>,
         parent: &Rc<Trace>,
-    ) -> impl IntoIterator<Item = Expansion> {
+    ) -> impl IntoIterator<Item = Inference> {
         match self {
             &(Self::One | Self::Top | Self::Zero | Self::Value(_)) => vec![],
             &Self::Bottom => vec![parent.one(context)],

@@ -7,7 +7,6 @@
 #![allow(clippy::arithmetic_side_effects, clippy::panic, clippy::print_stdout)]
 
 use crate::*;
-use quickcheck::quickcheck;
 
 #[test]
 fn cant_prove_0() {
@@ -58,6 +57,14 @@ fn prove_1_with_1_with_1_with_1() {
 }
 
 #[test]
+fn prove_1_with_1_with_1_with_1_with_1() {
+    assert_eq!(
+        (Ast::One & Ast::One & Ast::One & Ast::One & Ast::One).prove(),
+        Ok(())
+    );
+}
+
+#[test]
 fn cant_prove_0_with_1() {
     assert_eq!(
         (Ast::Zero & Ast::One).prove(),
@@ -100,6 +107,7 @@ fn bottom_implies_bottom() {
 }
 
 #[inline]
+#[cfg(feature = "quickcheck")]
 fn eq_implies_hash<T: Eq + core::hash::Hash>(a: &T, b: &T) -> bool {
     use {core::hash::Hasher, std::collections::hash_map::DefaultHasher};
     if a != b {
@@ -114,7 +122,8 @@ fn eq_implies_hash<T: Eq + core::hash::Hash>(a: &T, b: &T) -> bool {
     hash_a == hash_b
 }
 
-quickcheck! {
+#[cfg(feature = "quickcheck")]
+quickcheck::quickcheck! {
     fn trace_eq_implies_equal_hashes(a: turnstile::Trace, b: turnstile::Trace) -> bool {
         eq_implies_hash(&a, &b)
     }
@@ -138,8 +147,6 @@ quickcheck! {
         let hash_b = h.finish();
         hash_a == hash_b
     }
-
-    fn infix_one_to_one(infix: ast::Infix) -> bool { infix.into_ast(Box::new(Ast::Zero), Box::new(Ast::Zero)).infix_op() == Some(infix) }
 
     // #[allow(clippy::double_neg)]
     // fn involutive_dual(ast: Ast) -> bool { (--ast.clone()) == ast }

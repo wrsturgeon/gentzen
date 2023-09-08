@@ -86,12 +86,11 @@
     clippy::use_self,
     clippy::wildcard_imports
 )]
-#![allow(clippy::panic_in_result_fn, clippy::todo, dead_code)] // FIXME
 
 mod ast;
 mod multiset;
 pub mod proof;
-mod turnstile;
+pub mod turnstile;
 
 pub use {
     ast::{bang, quest, Ast},
