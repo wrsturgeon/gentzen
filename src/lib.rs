@@ -58,6 +58,7 @@
     unused_tuple_struct_fields,
     variant_size_differences
 )]
+#![allow(unknown_lints)]
 #![allow(
     clippy::blanket_clippy_restriction_lints,
     clippy::expect_used,
@@ -65,6 +66,7 @@
     clippy::inline_always,
     clippy::let_underscore_untyped,
     clippy::match_ref_pats,
+    clippy::min_ident_chars,
     clippy::missing_trait_methods,
     clippy::mod_module_files,
     clippy::multiple_unsafe_ops_per_block,
