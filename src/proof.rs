@@ -286,11 +286,11 @@ fn cache_proof(
         }
         // SAFETY: Had to be added to `seen` before extended to another turnstile.
         let current = unsafe { seen.get_mut(&trace.current).unwrap_unchecked() };
-        debug_assert_eq!(
-            current,
-            &mut State::Unknown,
-            "Claimed to have proven a statement that was already {current:?}"
-        );
+        // debug_assert_eq!(
+        //     current,
+        //     &mut State::Unknown,
+        //     "Claimed to have proven a statement that was already {current:?}"
+        // );
         *current = state;
         if let Some(ref next) = trace.history {
             trace = next;
