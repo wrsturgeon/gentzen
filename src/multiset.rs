@@ -7,17 +7,12 @@
 //! Unordered collection of (potentially many of the same) elements.
 
 use core::num::NonZeroUsize;
-use std::{collections::BTreeMap, rc::Rc};
-
-use crate::{
-    turnstile::{FamilyTree, Trace},
-    Turnstile,
-};
+use std::collections::BTreeMap;
 
 /// Unordered collection of (potentially many of the same) elements.
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct Multiset<T: Ord>(BTreeMap<T, NonZeroUsize>);
+pub struct Multiset<T: Ord>(pub(crate) BTreeMap<T, NonZeroUsize>);
 
 impl<T: Ord> Default for Multiset<T> {
     #[inline]
@@ -147,32 +142,6 @@ impl<T: Ord> Multiset<T> {
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
-
-    /// Continue with a single turnstile above the inference line.
-    #[must_use]
-    #[inline(always)]
-    pub fn and_then(child: Turnstile, parent: Rc<Trace>) -> Trace {
-        Trace {
-            current: child,
-            history: FamilyTree::Linear(parent),
-        }
-    }
-
-    /// Continue with two children.
-    #[must_use]
-    #[inline(always)]
-    pub fn split(lhs: Turnstile, rhs: Turnstile, parent: Rc<Trace>) -> (Trace, Trace) {
-        (
-            Trace {
-                current: lhs,
-                history: FamilyTree::Split(Rc::clone(&parent)),
-            },
-            Trace {
-                current: rhs,
-                history: FamilyTree::Split(parent),
-            },
-        )
-    }
 }
 
 impl<T: Clone + Ord> Multiset<T> {
@@ -204,10 +173,16 @@ impl<T: Ord> FromIterator<T> for Multiset<T> {
 impl<T: quickcheck::Arbitrary + Ord> quickcheck::Arbitrary for Multiset<T> {
     #[inline]
     fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        Self(quickcheck::Arbitrary::arbitrary(g))
+        Self::from_iter(Vec::arbitrary(g))
     }
     #[inline]
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        Box::new(self.0.shrink().map(Self))
+        Box::new(
+            self.iter()
+                .cloned()
+                .collect::<Vec<_>>()
+                .shrink()
+                .map(Self::from_iter),
+        )
     }
 }

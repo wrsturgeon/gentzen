@@ -144,7 +144,7 @@ impl Ast {
     /// Attempt to prove this expression with sequent-calculus proof search.
     /// # Errors
     /// If we can't.
-    #[inline]
+    #[inline(always)]
     pub fn prove(self) -> Result<(), crate::proof::Error> {
         crate::proof::prove(self)
     }
@@ -236,7 +236,7 @@ impl Ast {
     // /// Unambiguously order this expression.
     // #[inline]
     // #[must_use]
-    // #[allow(clippy::similar_names, unsafe_code)]
+    // #[allow(unsafe_code)]
     // pub fn sort(self) -> Self {
     //     if let Some(op) = self.infix_op() {
     //         match self {
@@ -247,13 +247,13 @@ impl Ast {
     //                 let expl = Box::new(lhs.sort());
     //                 let expr = Box::new(rhs.sort());
     //                 match (expl.infix_op(), expr.infix_op()) {
-    //                     (None, None) => { /* fallthrough */ }
+    //                     (None, None) => { /* fall through */ }
     //                     (Some(_), None) => return op.into_ast(expl, expr),
     //                     (None, Some(_)) => return op.into_ast(expr, expl),
     //                     (Some(op_l), Some(op_r)) => match op_l.cmp(&op_r) {
     //                         core::cmp::Ordering::Less => return op.into_ast(expr, expl),
     //                         core::cmp::Ordering::Greater => return op.into_ast(expl, expr),
-    //                         core::cmp::Ordering::Equal => { /* fallthrough */ }
+    //                         core::cmp::Ordering::Equal => { /* fall through */ }
     //                     },
     //                 }
     //                 if expr < expl {

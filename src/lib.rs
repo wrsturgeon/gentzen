@@ -76,6 +76,7 @@
     clippy::ref_patterns,
     clippy::semicolon_outside_block,
     clippy::separated_literal_suffix,
+    clippy::similar_names,
     clippy::single_char_lifetime_names,
     clippy::std_instead_of_alloc,
     clippy::string_add,
@@ -92,7 +93,7 @@ mod turnstile;
 pub use {
     ast::{bang, quest, Ast},
     multiset::Multiset,
-    turnstile::{Turnstile, Turnstiles},
+    turnstile::Turnstile,
 };
 
 #[cfg(test)]

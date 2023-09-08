@@ -200,10 +200,13 @@
 // ------------ !R
 // !D |- !B, ?G
 
-use crate::{turnstile::Trace, Ast, Multiset, Turnstiles};
+use crate::{
+    turnstile::{Split, Trace},
+    Ast, Multiset, Turnstile,
+};
 use core::cmp::Reverse;
 use std::{
-    collections::{BTreeSet, BinaryHeap, HashMap},
+    collections::{hash_map::Entry, BinaryHeap, HashMap, HashSet},
     rc::Rc,
 };
 
@@ -219,6 +222,25 @@ enum State {
     Unknown,
 }
 
+impl From<bool> for State {
+    #[inline(always)]
+    fn from(value: bool) -> Self {
+        if value {
+            Self::True
+        } else {
+            Self::False
+        }
+    }
+}
+
+impl State {
+    /// Whether this is `State::True`.
+    #[inline(always)]
+    pub(crate) const fn proven(self) -> bool {
+        matches!(self, State::True)
+    }
+}
+
 /// Unsuccessful proof.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -227,36 +249,177 @@ pub enum Error {
     RanOutOfPaths,
 }
 
-/// Attempt to prove a statement by sequent-calculus proof search.
+/// Expansion: either the proof is done, we have another turnstile, or we have to prove two.
+#[non_exhaustive]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum Expansion {
+    /// Proof is done: nothing above the inference line.
+    Qed(Rc<Trace>),
+    /// One turnstile above the inference line.
+    Linear(Trace),
+    /// Two turnstiles above the inference line.
+    Binary(Split),
+    /// Contradiction: nothing above the inference line.
+    Contradiction(Rc<Trace>),
+}
+
+/// Step through each turnstile in this proof and mark it with the provided state.
+#[inline]
 #[allow(clippy::print_stdout)] // FIXME: remove `println!`s
+fn cache_proof(
+    seen: &mut HashMap<Turnstile, State>,
+    paused: &HashSet<Split>,
+    mut trace: &Rc<Trace>,
+    truth: bool,
+    original: &Turnstile,
+) -> Option<impl IntoIterator<Item = Split>> {
+    let state = truth.into();
+    loop {
+        println!(
+            "    {}roved {}",
+            if truth { "P" } else { "Disp" },
+            trace.current
+        );
+        if &trace.current == original {
+            return None;
+        }
+        let current = seen
+            .get_mut(&trace.current)
+            .expect("Claimed to have proven a statement we've never seen");
+        debug_assert_eq!(
+            current,
+            &mut State::Unknown,
+            "Claimed to have proven a statement that was already {current:?}"
+        );
+        *current = state;
+        if let Some(ref next) = trace.history {
+            trace = next;
+        } else {
+            break;
+        }
+    }
+    let mut proven = HashSet::new();
+    for split in paused.iter() {
+        match (
+            seen.get(&split.lhs.current)
+                .expect("Paused an expression we hadn't seen"),
+            seen.get(&split.rhs.current)
+                .expect("Paused an expression we hadn't seen"),
+        ) {
+            (&State::True, &State::True) => {
+                let (lhs, rhs) = split.sort();
+                println!("    Proved [ {lhs}   {rhs} ]");
+                let _ = proven.insert(split.clone());
+                proven.extend(cache_proof(seen, paused, &split.history, true, original)?);
+            }
+            (&State::False, _) | (_, &State::False) => {
+                let (lhs, rhs) = split.sort();
+                println!("    Disproved [ {lhs}   {rhs} ]");
+                let _ = proven.insert(split.clone());
+                proven.extend(cache_proof(seen, paused, &split.history, false, original)?);
+            }
+            _ => { /* fall through */ }
+        }
+    }
+    Some(proven)
+}
+
+/// Add this turnstile to the queue iff we haven't seen it before.
+#[inline]
+#[allow(clippy::print_stdout)] // FIXME: remove `println!`s
+fn add_if_new(
+    seen: &mut HashMap<Turnstile, State>,
+    paths: &mut BinaryHeap<Reverse<Trace>>,
+    trace: Trace,
+) {
+    match seen.entry(trace.current.clone()) {
+        Entry::Vacant(unseen) => {
+            let _ = unseen.insert(State::Unknown);
+            println!("    Adding {trace}");
+            paths.push(Reverse(trace));
+        }
+        Entry::Occupied(_) => { /* fall through */ }
+    }
+}
+
+/// Attempt to prove a statement by sequent-calculus proof search.
+#[inline]
+#[allow(clippy::print_stdout, unused_mut, unused_variables)] // FIXME: remove `println!`s
 pub(crate) fn prove(ast: Ast) -> Result<(), Error> {
+    let original = Turnstile::new(ast);
     let mut seen = HashMap::new();
     let mut paths = BinaryHeap::new();
-    {
-        let init = Trace::from_thin_air(ast);
-        let _ = seen.insert(&init, State::Unknown);
-        paths.push(Reverse(Turnstiles::new(init)));
-    }
-    while let Some(Reverse(turnstiles)) = paths.pop() {
-        println!("Testing {turnstiles}");
-        let trace = match turnstiles.only() {
-            Ok(sole_element) => sole_element,
-            Err(proven) => return proven.then_some(()).ok_or(Error::RanOutOfPaths),
-        };
-        for next_turnstiles in Rc::new(trace).expand() {
-            // TODO: pause iff ANY individual turnstile has been seen
-            // for branch in &next_step {
-            //     println!("    Adding {branch}");
-            //     // match seen.entry(&branch) {
-            //     //     Entry::Vacant(unseen) => {
-            //     //         unseen.insert(State::Unknown);
-            //     //         paths.push(Reverse(next_step))
-            //     //     }
-            //     //     Entry::Occupied(_already_working_on_it) => {}
-            //     // }
-            //     todo!()
-            // }
-            paths.push(Reverse(next_turnstiles));
+    let mut paused: HashSet<Split> = HashSet::new();
+    let _ = seen.insert(original.clone(), State::Unknown);
+    paths.push(Reverse(Trace::from_thin_air(original.clone())));
+    while let Some(Reverse(path)) = paths.pop() {
+        println!("Testing {path}");
+        for expansion in Rc::new(path).expand() {
+            match expansion {
+                Expansion::Qed(history) => {
+                    match cache_proof(&mut seen, &paused, &history, true, &original) {
+                        None => return Ok(()),
+                        Some(proven) => {
+                            for split in proven {
+                                let _ = paused.remove(&split);
+                            }
+                        }
+                    }
+                }
+                Expansion::Contradiction(history) => {
+                    match cache_proof(&mut seen, &paused, &history, false, &original) {
+                        None => return Ok(()),
+                        Some(proven) => {
+                            for split in proven {
+                                let _ = paused.remove(&split);
+                            }
+                        }
+                    }
+                }
+                Expansion::Linear(trace) => add_if_new(&mut seen, &mut paths, trace),
+                Expansion::Binary(split) => {
+                    let Split {
+                        ref lhs, ref rhs, ..
+                    } = split;
+                    add_if_new(&mut seen, &mut paths, lhs.clone());
+                    add_if_new(&mut seen, &mut paths, rhs.clone());
+                    match (
+                        seen.get(&split.lhs.current)
+                            .expect("Expansion includes an expression we hadn't seen"),
+                        seen.get(&split.rhs.current)
+                            .expect("Expansion includes an expression we hadn't seen"),
+                    ) {
+                        (&State::True, &State::True) => {
+                            let (sl, sr) = split.sort();
+                            println!("    Proved [ {sl}   {sr} ]");
+                            match cache_proof(&mut seen, &paused, &split.history, true, &original) {
+                                None => return Ok(()),
+                                Some(proven) => {
+                                    for proven_split in proven {
+                                        let _ = paused.remove(&proven_split);
+                                    }
+                                }
+                            }
+                        }
+                        (&State::False, _) | (_, &State::False) => {
+                            let (sl, sr) = split.sort();
+                            println!("    Disproved [ {sl}   {sr} ]");
+                            match cache_proof(&mut seen, &paused, &split.history, false, &original)
+                            {
+                                None => return Ok(()),
+                                Some(proven) => {
+                                    for proven_split in proven {
+                                        let _ = paused.remove(&proven_split);
+                                    }
+                                }
+                            }
+                        }
+                        _ => { /* fall through */ }
+                    }
+                    println!("    Pausing {split}");
+                    let _ = paused.insert(split);
+                }
+            }
         }
     }
     Err(Error::RanOutOfPaths)
@@ -266,18 +429,19 @@ pub(crate) fn prove(ast: Ast) -> Result<(), Error> {
 impl Trace {
     /// All possible "next moves" in a sequent-calculus proof search.
     #[inline(always)]
-    pub(crate) fn expand(self: &Rc<Self>) -> impl IntoIterator<Item = Turnstiles> {
+    pub(crate) fn expand(self: &Rc<Self>) -> Vec<Expansion> {
         if self.current.rhs.contains(&Ast::Top) {
-            return vec![Turnstiles::qed()];
+            return vec![Expansion::Qed(Rc::clone(self))];
         }
         match self.current.rhs.only() {
-            Some(&Ast::One) => return vec![Turnstiles::qed()],
+            Some(&Ast::One) => return vec![Expansion::Qed(Rc::clone(self))],
+            Some(&Ast::Bottom) => return vec![Expansion::Contradiction(Rc::clone(self))],
             Some(_) | None => {}
         }
         match self.current.rhs.pair() {
             Some((&Ast::Dual(ref neg), pos) | (pos, &Ast::Dual(ref neg))) => {
                 if neg.as_ref() == pos {
-                    return vec![Turnstiles::qed()];
+                    return vec![Expansion::Qed(Rc::clone(self))];
                 }
             }
             Some(_) | None => {}
@@ -292,6 +456,31 @@ impl Trace {
             })
             .collect()
     }
+
+    /// Continue with a single turnstile above the inference line.
+    #[inline(always)]
+    pub fn one(self: &Rc<Self>, child: Multiset<Ast>) -> Expansion {
+        Expansion::Linear(Self {
+            current: Turnstile { rhs: child },
+            history: Some(Rc::clone(self)),
+        })
+    }
+
+    /// Continue with two children.
+    #[inline(always)]
+    pub fn two(self: &Rc<Self>, lhs: Multiset<Ast>, rhs: Multiset<Ast>) -> Expansion {
+        Expansion::Binary(Split {
+            lhs: Self {
+                current: Turnstile { rhs: lhs },
+                history: None,
+            },
+            rhs: Self {
+                current: Turnstile { rhs },
+                history: None,
+            },
+            history: Rc::clone(self),
+        })
+    }
 }
 
 #[allow(clippy::multiple_inherent_impl)]
@@ -302,8 +491,8 @@ impl Ast {
         &self,
         context: Multiset<Ast>,
         parent: &Rc<Trace>,
-    ) -> impl IntoIterator<Item = Turnstiles> {
-        let v: Vec<BTreeSet<Trace>> = match self {
+    ) -> impl IntoIterator<Item = Expansion> {
+        match self {
             &(Self::One | Self::Top | Self::Zero | Self::Value(_)) => vec![],
             &Self::Bottom => vec![parent.one(context)],
             &Self::Bang(ref arg) => {
@@ -318,7 +507,32 @@ impl Ast {
                 parent.one(context.with([arg.as_ref().clone()])),
                 parent.one(context.with([Self::Quest(arg.clone()), Self::Quest(arg.clone())])),
             ],
-            &Self::Dual(ref _arg) => todo!(),
+            &Self::Dual(ref dual) => vec![parent.one(context.with([match dual.as_ref() {
+                &Self::One => Self::Bottom,
+                &Self::Bottom => Self::One,
+                &Self::Top => Self::Zero,
+                &Self::Zero => Self::Top,
+                &Self::Value(_) => return vec![],
+                &Self::Bang(ref arg) => Self::Quest(Box::new(Self::Dual(arg.clone()))),
+                &Self::Quest(ref arg) => Self::Bang(Box::new(Self::Dual(arg.clone()))),
+                &Self::Dual(ref arg) => arg.as_ref().clone(),
+                &Self::Times(ref lhs, ref rhs) => Self::Par(
+                    Box::new(Self::Dual(lhs.clone())),
+                    Box::new(Self::Dual(rhs.clone())),
+                ),
+                &Self::Par(ref lhs, ref rhs) => Self::Times(
+                    Box::new(Self::Dual(lhs.clone())),
+                    Box::new(Self::Dual(rhs.clone())),
+                ),
+                &Self::With(ref lhs, ref rhs) => Self::Plus(
+                    Box::new(Self::Dual(lhs.clone())),
+                    Box::new(Self::Dual(rhs.clone())),
+                ),
+                &Self::Plus(ref lhs, ref rhs) => Self::With(
+                    Box::new(Self::Dual(lhs.clone())),
+                    Box::new(Self::Dual(rhs.clone())),
+                ),
+            }]))],
             &Self::Times(ref _lhs, ref _rhs) => todo!(),
             &Self::Par(ref lhs, ref rhs) => {
                 vec![parent.one(context.with([lhs.as_ref().clone(), rhs.as_ref().clone()]))]
@@ -333,7 +547,6 @@ impl Ast {
                 parent.one(context.with([lhs.as_ref().clone()])),
                 parent.one(context.with([rhs.as_ref().clone()])),
             ],
-        };
-        v.into_iter().map(Turnstiles)
+        }
     }
 }

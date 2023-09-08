@@ -7,7 +7,7 @@
 //! A turnstile symbol with comma-separated expressions on either (but currently just one) side.
 
 use crate::{Ast, Multiset};
-use std::{collections::BTreeSet, rc::Rc};
+use std::rc::Rc;
 
 /// A turnstile symbol with comma-separated expressions on either (but currently just one) side.
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
@@ -123,54 +123,54 @@ impl quickcheck::Arbitrary for Turnstile {
     }
 }
 
-/// Either from thin air, the only sequent above an inference line, or one of two sequents above an inference line.
-#[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub(crate) enum FamilyTree {
-    /// From thin air.
-    #[default]
-    Stork,
-    /// One sequent above the inference line.
-    Linear(Rc<Trace>),
-    /// Two sequents above the inference line.
-    Split(Rc<Trace>),
-}
+// /// Either from thin air, the only sequent above an inference line, or one of two sequents above an inference line.
+// #[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+// pub(crate) enum FamilyTree {
+//     /// From thin air.
+//     #[default]
+//     Stork,
+//     /// One sequent above the inference line.
+//     Linear(Rc<Trace>),
+//     /// Two sequents above the inference line.
+//     Split(Rc<Trace>),
+// }
 
-#[cfg(test)]
-impl quickcheck::Arbitrary for FamilyTree {
-    #[inline]
-    #[allow(clippy::same_functions_in_if_condition)]
-    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        if bool::arbitrary(g) {
-            Self::Linear(Rc::new(Trace::arbitrary(g)))
-        } else if bool::arbitrary(g) {
-            Self::Split(Rc::new(Trace::arbitrary(g)))
-        } else {
-            Self::Stork
-        }
-    }
-    #[inline]
-    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        match self {
-            &Self::Stork => Box::new(core::iter::empty()),
-            &Self::Linear(ref rc) => {
-                Box::new(rc.shrink().map(|trace| Self::Linear(Rc::new(trace))))
-            }
-            &Self::Split(ref rc) => Box::new(
-                Self::Linear(Rc::clone(rc))
-                    .shrink()
-                    .chain(rc.shrink().map(|trace| Self::Split(Rc::new(trace)))),
-            ),
-        }
-    }
-}
+// #[cfg(test)]
+// impl quickcheck::Arbitrary for FamilyTree {
+//     #[inline]
+//     #[allow(clippy::same_functions_in_if_condition)]
+//     fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+//         if bool::arbitrary(g) {
+//             Self::Linear(Rc::new(Trace::arbitrary(g)))
+//         } else if bool::arbitrary(g) {
+//             Self::Split(Rc::new(Trace::arbitrary(g)))
+//         } else {
+//             Self::Stork
+//         }
+//     }
+//     #[inline]
+//     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+//         match self {
+//             &Self::Stork => Box::new(core::iter::empty()),
+//             &Self::Linear(ref rc) => {
+//                 Box::new(rc.shrink().map(|trace| Self::Linear(Rc::new(trace))))
+//             }
+//             &Self::Split(ref rc) => Box::new(
+//                 Self::Linear(Rc::clone(rc))
+//                     .shrink()
+//                     .chain(rc.shrink().map(|trace| Self::Split(Rc::new(trace)))),
+//             ),
+//         }
+//     }
+// }
 
 /// Turnstile together with its (linear) history.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Trace {
     /// Current turnstile.
     pub(crate) current: Turnstile,
-    /// All previous ones that led up to this one.
-    pub(crate) history: FamilyTree,
+    /// All previous turnstiles that led up to this one.
+    pub(crate) history: Option<Rc<Trace>>,
 }
 
 impl PartialEq for Trace {
@@ -209,10 +209,10 @@ impl core::hash::Hash for Trace {
 impl Trace {
     /// New trace with no history.
     #[inline(always)]
-    pub fn from_thin_air(ast: Ast) -> Self {
+    pub const fn from_thin_air(current: Turnstile) -> Self {
         Self {
-            current: Turnstile::new(ast),
-            history: FamilyTree::Stork,
+            current,
+            history: None,
         }
     }
 
@@ -221,37 +221,11 @@ impl Trace {
     pub fn age(&self) -> usize {
         let mut ancestor = &self.history;
         let mut acc: usize = 0;
-        while let &(FamilyTree::Linear(ref parent) | FamilyTree::Split(ref parent)) = ancestor {
+        while let &Some(ref parent) = ancestor {
             acc = acc.checked_add(1).expect("Ridiculously huge value");
             ancestor = &parent.history;
         }
         acc
-    }
-
-    /// Continue with a single turnstile above the inference line.
-    #[inline(always)]
-    pub fn one(self: &Rc<Self>, child: Multiset<Ast>) -> BTreeSet<Self> {
-        let mut bts = BTreeSet::new();
-        let _ = bts.insert(Self {
-            current: Turnstile { rhs: child },
-            history: FamilyTree::Linear(Rc::clone(self)),
-        });
-        bts
-    }
-
-    /// Continue with two children.
-    #[inline(always)]
-    pub fn two(self: &Rc<Self>, lhs: Multiset<Ast>, rhs: Multiset<Ast>) -> BTreeSet<Self> {
-        let mut bts = BTreeSet::new();
-        let _ = bts.insert(Self {
-            current: Turnstile { rhs: lhs },
-            history: FamilyTree::Split(Rc::clone(self)),
-        });
-        let _ = bts.insert(Self {
-            current: Turnstile { rhs },
-            history: FamilyTree::Split(Rc::clone(self)),
-        });
-        bts
     }
 
     /// Clone and insert an element into the clone.
@@ -284,122 +258,145 @@ impl core::fmt::Display for Trace {
     }
 }
 
+/// Convert to a linked list.
+#[inline]
+fn rc_list(v: Vec<Turnstile>) -> Option<Rc<Trace>> {
+    v.into_iter().fold(None, |history, current| {
+        Some(Rc::new(Trace { current, history }))
+    })
+}
+
+/// Convert from a linked list.
+#[inline]
+fn from_rc_list(mut history: Option<&Rc<Trace>>) -> Vec<Turnstile> {
+    let mut acc = vec![];
+    while let Some(parent) = history {
+        acc.push(parent.current.clone());
+        history = parent.history.as_ref();
+    }
+    acc
+}
+
 #[cfg(test)]
 impl quickcheck::Arbitrary for Trace {
     #[inline]
     fn arbitrary(g: &mut quickcheck::Gen) -> Self {
         Self {
             current: quickcheck::Arbitrary::arbitrary(g),
-            history: quickcheck::Arbitrary::arbitrary(g),
+            history: rc_list(Vec::arbitrary(g)),
         }
     }
     #[inline]
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
         Box::new(
-            (self.current.clone(), self.history.clone())
+            (self.current.clone(), from_rc_list(self.history.as_ref()))
                 .shrink()
-                .map(|(current, history)| Self { current, history }),
+                .map(|(current, history)| Self {
+                    current,
+                    history: rc_list(history),
+                }),
         )
     }
 }
 
-/// Set of turnstiles.
-#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
-pub struct Turnstiles(pub(crate) BTreeSet<Trace>);
+/// Set of turnstiles all together on top of an inference line.
+#[derive(Clone, Debug, Default)]
+pub struct Split {
+    /// Left-hand turnstile.
+    pub(crate) lhs: Trace,
+    /// Right-hand turnstile.
+    pub(crate) rhs: Trace,
+    /// All previous turnstiles that led up to this one.
+    pub(crate) history: Rc<Trace>,
+}
 
-impl PartialOrd for Turnstiles {
+impl PartialEq for Split {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        (&self.lhs, &self.rhs) == (&other.lhs, &other.rhs)
+            || (&self.rhs, &self.lhs) == (&other.lhs, &other.rhs)
+    }
+}
+
+impl Eq for Split {}
+
+impl PartialOrd for Split {
     #[inline(always)]
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for Turnstiles {
+impl Ord for Split {
     #[inline]
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        match self.len().cmp(&other.len()) {
+        let (lmin, lmax) = self.sort();
+        let (rmin, rmax) = other.sort();
+        match lmin.cmp(rmin) {
             diff @ (core::cmp::Ordering::Less | core::cmp::Ordering::Greater) => diff,
-            core::cmp::Ordering::Equal => self.0.cmp(&other.0),
+            core::cmp::Ordering::Equal => lmax.cmp(rmax),
         }
     }
 }
 
-impl Turnstiles {
-    /// New set with no turnstiles (i.e. a rule with nothing above the inference line).
-    #[must_use]
-    #[inline(always)]
-    pub const fn qed() -> Self {
-        Self(BTreeSet::new())
-    }
-
-    /// New set from a single turnstile.
-    #[must_use]
-    #[inline(always)]
-    pub fn new(singleton: Trace) -> Self {
-        let mut bts = BTreeSet::new();
-        let _ = bts.insert(singleton);
-        Self(bts)
-    }
-
-    /// Total number of comma-separated expressions.
-    #[must_use]
-    #[inline(always)]
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    /// Whether this set of sequents has been proven.
-    #[must_use]
-    #[inline(always)]
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    /// If this element has only one element, return it.
-    /// Otherwise, return whether it's empty.
-    /// # Errors
-    /// Any size other than exactly 1.
-    #[inline(always)]
-    pub fn only(mut self) -> Result<Trace, bool> {
-        match self.0.pop_first() {
-            None => Err(true),
-            Some(first) => {
-                if self.0.pop_first().is_none() {
-                    Ok(first)
-                } else {
-                    Err(false)
-                }
-            }
-        }
+impl core::hash::Hash for Split {
+    #[inline]
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        let (min, max) = self.sort();
+        min.hash(state);
+        max.hash(state);
     }
 }
 
-impl FromIterator<Trace> for Turnstiles {
-    #[inline(always)]
-    fn from_iter<T: IntoIterator<Item = Trace>>(iter: T) -> Self {
-        Self(FromIterator::from_iter(iter))
-    }
-}
-
-impl<'a> IntoIterator for &'a Turnstiles {
-    type Item = &'a Trace;
-    type IntoIter = std::collections::btree_set::Iter<'a, Trace>;
-    #[inline(always)]
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.iter()
-    }
-}
-
-impl core::fmt::Display for Turnstiles {
+impl core::fmt::Display for Split {
     #[inline]
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let mut iter = self.0.iter();
-        if let Some(first) = iter.next() {
-            write!(f, "{first}")?;
-            for next in iter {
-                write!(f, "   {next}")?;
+        let (lhs, rhs) = self.sort();
+        write!(f, "[ {lhs}   {rhs} ]")
+    }
+}
+
+impl Split {
+    /// Fix an arbitrary ordering.
+    #[inline]
+    #[must_use]
+    pub fn sort(&self) -> (&Trace, &Trace) {
+        if self.rhs < self.lhs {
+            (&self.rhs, &self.lhs)
+        } else {
+            (&self.lhs, &self.rhs)
+        }
+    }
+}
+
+#[cfg(test)]
+impl quickcheck::Arbitrary for Split {
+    #[inline]
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        let lhs = quickcheck::Arbitrary::arbitrary(g);
+        let rhs = quickcheck::Arbitrary::arbitrary(g);
+        loop {
+            if let Some(history) = rc_list(Vec::arbitrary(g)) {
+                return Self { lhs, rhs, history };
             }
         }
-        Ok(())
+    }
+    #[inline]
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+        Box::new(
+            (
+                self.lhs.clone(),
+                self.rhs.clone(),
+                from_rc_list(Some(&Rc::new(self.history.as_ref().clone()))),
+            )
+                .shrink()
+                .filter_map(|(lhs, rhs, history)| {
+                    Some(Self {
+                        lhs,
+                        rhs,
+                        history: rc_list(history)?,
+                    })
+                }),
+        )
     }
 }
