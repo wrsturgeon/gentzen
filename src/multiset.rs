@@ -48,6 +48,8 @@ impl<T: Ord> Multiset<T> {
     }
 
     /// Add an element to the set, even if it's a duplicate. Return how many there _now_ are.
+    /// # Panics
+    /// If we overflow a `usize` (many other things, including maybe your death, will happen first).
     #[inline]
     #[allow(unsafe_code)]
     pub fn insert(&mut self, element: T) -> NonZeroUsize {
@@ -55,8 +57,7 @@ impl<T: Ord> Multiset<T> {
             .0
             .entry(element)
             .and_modify(|i| *i = i.checked_add(1).expect("Ridiculously huge value"))
-            // SAFETY:
-            // Always 1, which is nonzero.
+            // SAFETY: Always 1, which is nonzero.
             .or_insert(unsafe { NonZeroUsize::new_unchecked(1) })
     }
 
@@ -83,6 +84,8 @@ impl<T: Ord> Multiset<T> {
     }
 
     /// Whole number of elements, counting all duplicates.
+    /// # Panics
+    /// If we overflow a `usize` (many other things, including maybe your death, will happen first).
     #[inline]
     #[must_use]
     pub fn len(&self) -> usize {

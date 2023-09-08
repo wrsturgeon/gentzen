@@ -9,6 +9,7 @@
 
 // #![cfg_attr(not(test), no_std)]
 #![deny(warnings)]
+#![allow(unknown_lints)]
 #![warn(
     clippy::all,
     clippy::missing_docs_in_private_items,
@@ -58,7 +59,6 @@
     unused_tuple_struct_fields,
     variant_size_differences
 )]
-#![allow(unknown_lints)]
 #![allow(
     clippy::blanket_clippy_restriction_lints,
     clippy::expect_used,
@@ -73,6 +73,7 @@
     clippy::needless_borrowed_reference,
     clippy::partial_pub_fields,
     clippy::pub_use,
+    clippy::pub_with_shorthand,
     clippy::question_mark_used,
     clippy::redundant_pub_crate,
     clippy::ref_patterns,

@@ -265,6 +265,7 @@ pub enum Expansion {
 
 /// Step through each turnstile in this proof and mark it with the provided state.
 #[inline]
+#[allow(unsafe_code)]
 #[allow(clippy::print_stdout)] // FIXME: remove `println!`s
 fn cache_proof(
     seen: &mut HashMap<Turnstile, State>,
@@ -283,9 +284,8 @@ fn cache_proof(
         if &trace.current == original {
             return None;
         }
-        let current = seen
-            .get_mut(&trace.current)
-            .expect("Claimed to have proven a statement we've never seen");
+        // SAFETY: Had to be added to `seen` before extended to another turnstile.
+        let current = unsafe { seen.get_mut(&trace.current).unwrap_unchecked() };
         debug_assert_eq!(
             current,
             &mut State::Unknown,
@@ -299,13 +299,14 @@ fn cache_proof(
         }
     }
     let mut proven = HashSet::new();
-    for split in paused.iter() {
-        match (
-            seen.get(&split.lhs.current)
-                .expect("Paused an expression we hadn't seen"),
-            seen.get(&split.rhs.current)
-                .expect("Paused an expression we hadn't seen"),
-        ) {
+    for split in paused {
+        // SAFETY: Always added to `seen` before `paused`.
+        match unsafe {
+            (
+                seen.get(&split.lhs.current).unwrap_unchecked(),
+                seen.get(&split.rhs.current).unwrap_unchecked(),
+            )
+        } {
             (&State::True, &State::True) => {
                 let (lhs, rhs) = split.sort();
                 println!("    Proved [ {lhs}   {rhs} ]");
@@ -342,87 +343,108 @@ fn add_if_new(
     }
 }
 
-/// Attempt to prove a statement by sequent-calculus proof search.
-#[inline]
-#[allow(clippy::print_stdout, unused_mut, unused_variables)] // FIXME: remove `println!`s
-pub(crate) fn prove(ast: Ast) -> Result<(), Error> {
-    let original = Turnstile::new(ast);
-    let mut seen = HashMap::new();
-    let mut paths = BinaryHeap::new();
-    let mut paused: HashSet<Split> = HashSet::new();
-    let _ = seen.insert(original.clone(), State::Unknown);
-    paths.push(Reverse(Trace::from_thin_air(original.clone())));
-    while let Some(Reverse(path)) = paths.pop() {
-        println!("Testing {path}");
-        for expansion in Rc::new(path).expand() {
-            match expansion {
-                Expansion::Qed(history) => {
-                    match cache_proof(&mut seen, &paused, &history, true, &original) {
-                        None => return Ok(()),
-                        Some(proven) => {
-                            for split in proven {
-                                let _ = paused.remove(&split);
-                            }
-                        }
-                    }
-                }
-                Expansion::Contradiction(history) => {
-                    match cache_proof(&mut seen, &paused, &history, false, &original) {
-                        None => return Ok(()),
-                        Some(proven) => {
-                            for split in proven {
-                                let _ = paused.remove(&split);
-                            }
-                        }
-                    }
-                }
-                Expansion::Linear(trace) => add_if_new(&mut seen, &mut paths, trace),
-                Expansion::Binary(split) => {
-                    let Split {
-                        ref lhs, ref rhs, ..
-                    } = split;
-                    add_if_new(&mut seen, &mut paths, lhs.clone());
-                    add_if_new(&mut seen, &mut paths, rhs.clone());
-                    match (
-                        seen.get(&split.lhs.current)
-                            .expect("Expansion includes an expression we hadn't seen"),
-                        seen.get(&split.rhs.current)
-                            .expect("Expansion includes an expression we hadn't seen"),
-                    ) {
-                        (&State::True, &State::True) => {
-                            let (sl, sr) = split.sort();
-                            println!("    Proved [ {sl}   {sr} ]");
-                            match cache_proof(&mut seen, &paused, &split.history, true, &original) {
-                                None => return Ok(()),
-                                Some(proven) => {
-                                    for proven_split in proven {
-                                        let _ = paused.remove(&proven_split);
-                                    }
+#[allow(clippy::multiple_inherent_impl)]
+impl Ast {
+    /// Attempt to prove this expression with sequent-calculus proof search.
+    /// # Errors
+    /// If we can't.
+    #[inline]
+    #[allow(unsafe_code)]
+    #[allow(clippy::print_stdout)] // FIXME: remove `println!`s
+    pub fn prove(self) -> Result<(), Error> {
+        let original = Turnstile::new(self);
+        let mut seen = HashMap::new();
+        let mut paths = BinaryHeap::new();
+        let mut paused: HashSet<Split> = HashSet::new();
+        let _ = seen.insert(original.clone(), State::Unknown);
+        paths.push(Reverse(Trace {
+            current: original.clone(),
+            history: None,
+        }));
+        while let Some(Reverse(path)) = paths.pop() {
+            println!("Testing {path}");
+            for expansion in Rc::new(path).expand() {
+                match expansion {
+                    Expansion::Qed(history) => {
+                        match cache_proof(&mut seen, &paused, &history, true, &original) {
+                            None => return Ok(()),
+                            Some(proven) => {
+                                for split in proven {
+                                    let _ = paused.remove(&split);
                                 }
                             }
                         }
-                        (&State::False, _) | (_, &State::False) => {
-                            let (sl, sr) = split.sort();
-                            println!("    Disproved [ {sl}   {sr} ]");
-                            match cache_proof(&mut seen, &paused, &split.history, false, &original)
-                            {
-                                None => return Ok(()),
-                                Some(proven) => {
-                                    for proven_split in proven {
-                                        let _ = paused.remove(&proven_split);
-                                    }
+                    }
+                    Expansion::Contradiction(history) => {
+                        match cache_proof(&mut seen, &paused, &history, false, &original) {
+                            None => return Ok(()),
+                            Some(proven) => {
+                                for split in proven {
+                                    let _ = paused.remove(&split);
                                 }
                             }
                         }
-                        _ => { /* fall through */ }
                     }
-                    println!("    Pausing {split}");
-                    let _ = paused.insert(split);
+                    Expansion::Linear(trace) => add_if_new(&mut seen, &mut paths, trace),
+                    Expansion::Binary(split) => {
+                        let Split {
+                            ref lhs, ref rhs, ..
+                        } = split;
+                        add_if_new(&mut seen, &mut paths, lhs.clone());
+                        add_if_new(&mut seen, &mut paths, rhs.clone());
+                        // SAFETY: Added to `seen` above.
+                        match unsafe {
+                            (
+                                seen.get(&split.lhs.current).unwrap_unchecked(),
+                                seen.get(&split.rhs.current).unwrap_unchecked(),
+                            )
+                        } {
+                            (&State::True, &State::True) => {
+                                let (sl, sr) = split.sort();
+                                println!("    Proved [ {sl}   {sr} ]");
+                                match cache_proof(
+                                    &mut seen,
+                                    &paused,
+                                    &split.history,
+                                    true,
+                                    &original,
+                                ) {
+                                    None => return Ok(()),
+                                    Some(proven) => {
+                                        for proven_split in proven {
+                                            let _ = paused.remove(&proven_split);
+                                        }
+                                    }
+                                }
+                            }
+                            (&State::False, _) | (_, &State::False) => {
+                                let (sl, sr) = split.sort();
+                                println!("    Disproved [ {sl}   {sr} ]");
+                                match cache_proof(
+                                    &mut seen,
+                                    &paused,
+                                    &split.history,
+                                    false,
+                                    &original,
+                                ) {
+                                    None => return Ok(()),
+                                    Some(proven) => {
+                                        for proven_split in proven {
+                                            let _ = paused.remove(&proven_split);
+                                        }
+                                    }
+                                }
+                            }
+                            _ => { /* fall through */ }
+                        }
+                        println!("    Pausing {split}");
+                        let _ = paused.insert(split);
+                    }
                 }
             }
         }
+        Err(Error::RanOutOfPaths)
     }
-    Err(Error::RanOutOfPaths)
 }
 
 #[allow(clippy::multiple_inherent_impl)]

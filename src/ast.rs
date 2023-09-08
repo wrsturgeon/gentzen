@@ -141,14 +141,6 @@ impl Ast {
         Self::Par(Box::new(self), Box::new(rhs))
     }
 
-    /// Attempt to prove this expression with sequent-calculus proof search.
-    /// # Errors
-    /// If we can't.
-    #[inline(always)]
-    pub fn prove(self) -> Result<(), crate::proof::Error> {
-        crate::proof::prove(self)
-    }
-
     /// Infix operator, if there is one.
     #[inline]
     #[must_use]
@@ -270,8 +262,7 @@ impl Ast {
     //             | Self::Dual(_)
     //             | Self::Bang(_)
     //             | Self::Quest(_) => {
-    //                 // SAFETY:
-    //                 // Based on the output of `infix_op`.
+    //                 // SAFETY: Based on the output of `infix_op`.
     //                 unsafe { core::hint::unreachable_unchecked() }
     //             }
     //         }
@@ -286,8 +277,7 @@ impl Ast {
     //             Self::Bang(arg) => Self::Bang(Box::new(arg.sort())),
     //             Self::Quest(arg) => Self::Quest(Box::new(arg.sort())),
     //             Self::Times(..) | Self::Par(..) | Self::With(..) | Self::Plus(..) => {
-    //                 // SAFETY:
-    //                 // Based on the output of `infix_op`.
+    //                 // SAFETY: Based on the output of `infix_op`.
     //                 unsafe { core::hint::unreachable_unchecked() }
     //             }
     //         }

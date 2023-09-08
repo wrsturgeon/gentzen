@@ -207,15 +207,6 @@ impl core::hash::Hash for Trace {
 }
 
 impl Trace {
-    /// New trace with no history.
-    #[inline(always)]
-    pub const fn from_thin_air(current: Turnstile) -> Self {
-        Self {
-            current,
-            history: None,
-        }
-    }
-
     /// Number of traced turnstiles before this one.
     #[inline(always)]
     pub fn age(&self) -> usize {

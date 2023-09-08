@@ -2,6 +2,7 @@
 
 set -eux
 
+rustup update
 rustup toolchain install nightly
 rustup component add miri --toolchain nightly
 
