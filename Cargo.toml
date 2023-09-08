@@ -1,0 +1,24 @@
+[package]
+name = "gentzen"
+authors = ["Will Sturgeon <willstrgn@gmail.com>"]
+version = "0.1.0"
+edition = "2021"
+description = "Proving and manipulating linear-logic expressions."
+license = "MPL-2.0"
+repository = "github.com/wrsturgeon/linear-logic"
+readme = "README.md"
+build = "build.rs"
+keywords = ["logic", "mathematics", "substructural", "type", "parse"]
+categories = [
+  "mathematics",
+  "parser-implementations",
+  "data-structures",
+  "encoding",
+  "memory-management",
+]
+
+[dependencies]
+# none
+
+[dev-dependencies]
+quickcheck = "1.0.3"
