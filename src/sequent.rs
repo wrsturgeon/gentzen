@@ -11,21 +11,21 @@ use std::{collections::BTreeSet, rc::Rc};
 
 /// A turnstile symbol with comma-separated expressions on either (but currently just one) side.
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
-pub struct Turnstile {
+pub struct Sequent {
     // /// Left side of the turnstile, on which comma means times.
     // pub(crate) lhs: Multiset<Ast>,
     /// Right side of the turnstile, on which comma means par.
     pub(crate) rhs: Multiset<Ast>,
 }
 
-impl PartialOrd for Turnstile {
+impl PartialOrd for Sequent {
     #[inline(always)]
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for Turnstile {
+impl Ord for Sequent {
     #[inline]
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         match self.len().cmp(&other.len()) {
@@ -38,7 +38,7 @@ impl Ord for Turnstile {
     }
 }
 
-impl Turnstile {
+impl Sequent {
     /// New turnstile from an expression that will go on its right-hand side.
     #[must_use]
     #[inline(always)]
@@ -89,7 +89,7 @@ impl Turnstile {
     }
 }
 
-impl core::fmt::Display for Turnstile {
+impl core::fmt::Display for Sequent {
     #[inline]
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "\u{22a2}")?;
@@ -105,7 +105,7 @@ impl core::fmt::Display for Turnstile {
 }
 
 #[cfg(feature = "quickcheck")]
-impl quickcheck::Arbitrary for Turnstile {
+impl quickcheck::Arbitrary for Sequent {
     #[inline]
     fn arbitrary(g: &mut quickcheck::Gen) -> Self {
         Self {
@@ -123,52 +123,11 @@ impl quickcheck::Arbitrary for Turnstile {
     }
 }
 
-// /// Either from thin air, the only sequent above an inference line, or one of two sequents above an inference line.
-// #[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
-// pub(crate) enum FamilyTree {
-//     /// From thin air.
-//     #[default]
-//     Stork,
-//     /// One sequent above the inference line.
-//     Linear(Rc<Trace>),
-//     /// Two sequents above the inference line.
-//     Split(Rc<Trace>),
-// }
-
-// #[cfg(feature = "quickcheck")]
-// impl quickcheck::Arbitrary for FamilyTree {
-//     #[inline]
-//     #[allow(clippy::same_functions_in_if_condition)]
-//     fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-//         if bool::arbitrary(g) {
-//             Self::Linear(Rc::new(Trace::arbitrary(g)))
-//         } else if bool::arbitrary(g) {
-//             Self::Split(Rc::new(Trace::arbitrary(g)))
-//         } else {
-//             Self::Stork
-//         }
-//     }
-//     #[inline]
-//     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-//         match self {
-//             &Self::Stork => Box::new(core::iter::empty()),
-//             &Self::Linear(ref rc) => {
-//                 Box::new(rc.shrink().map(|trace| Self::Linear(Rc::new(trace))))
-//             }
-//             &Self::Split(ref rc) => Box::new(
-//                 Self::Linear(Rc::clone(rc))
-//                     .shrink()
-//                     .chain(rc.shrink().map(|trace| Self::Split(Rc::new(trace)))),
-//             ),
-//         }
-//     }
-// }
-
-/// Turnstile together with its (linear) history.
+/// Sequent together with its (linear) history.
 #[derive(Clone, Debug, Default)]
 pub struct Trace {
     /// Current turnstile.
-    pub(crate) current: Turnstile,
+    pub(crate) current: Sequent,
     /// All previous turnstiles that led up to this one.
     pub(crate) history: Option<Rc<Trace>>,
 }
@@ -279,7 +238,7 @@ impl core::fmt::Display for Trace {
 /// Convert to a linked list.
 #[inline]
 #[cfg(feature = "quickcheck")]
-fn rc_list(v: Vec<Turnstile>) -> Option<Rc<Trace>> {
+fn rc_list(v: Vec<Sequent>) -> Option<Rc<Trace>> {
     v.into_iter().fold(None, |history, current| {
         Some(Rc::new(Trace { current, history }))
     })
@@ -288,7 +247,7 @@ fn rc_list(v: Vec<Turnstile>) -> Option<Rc<Trace>> {
 /// Convert from a linked list.
 #[inline]
 #[cfg(feature = "quickcheck")]
-fn from_rc_list(mut history: Option<&Rc<Trace>>) -> Vec<Turnstile> {
+fn from_rc_list(mut history: Option<&Rc<Trace>>) -> Vec<Sequent> {
     let mut acc = vec![];
     while let Some(parent) = history {
         acc.push(parent.current.clone());
@@ -323,7 +282,7 @@ impl quickcheck::Arbitrary for Trace {
 #[derive(Clone, Debug, Default)]
 pub struct Split {
     /// All turnstiles above the inference line.
-    pub(crate) turnstiles: BTreeSet<Turnstile>,
+    pub(crate) turnstiles: BTreeSet<Sequent>,
     /// All previous turnstiles that led up to this one.
     pub(crate) history: Rc<Trace>,
 }
@@ -388,8 +347,8 @@ impl core::fmt::Display for Split {
 }
 
 impl IntoIterator for Split {
-    type Item = Turnstile;
-    type IntoIter = std::collections::btree_set::IntoIter<Turnstile>;
+    type Item = Sequent;
+    type IntoIter = std::collections::btree_set::IntoIter<Sequent>;
     #[inline(always)]
     fn into_iter(self) -> Self::IntoIter {
         self.turnstiles.into_iter()
@@ -397,8 +356,8 @@ impl IntoIterator for Split {
 }
 
 impl<'a> IntoIterator for &'a Split {
-    type Item = &'a Turnstile;
-    type IntoIter = std::collections::btree_set::Iter<'a, Turnstile>;
+    type Item = &'a Sequent;
+    type IntoIter = std::collections::btree_set::Iter<'a, Sequent>;
     #[inline(always)]
     fn into_iter(self) -> Self::IntoIter {
         self.turnstiles.iter()

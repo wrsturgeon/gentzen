@@ -90,12 +90,12 @@
 mod ast;
 mod multiset;
 pub mod proof;
-pub mod turnstile;
+pub mod sequent;
 
 pub use {
     ast::{bang, quest, Ast},
     multiset::Multiset,
-    turnstile::Turnstile,
+    sequent::Sequent,
 };
 
 #[cfg(test)]

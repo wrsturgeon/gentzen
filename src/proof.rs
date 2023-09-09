@@ -201,8 +201,8 @@
 // !D |- !B, ?G
 
 use crate::{
-    turnstile::{Split, Trace},
-    Ast, Multiset, Turnstile,
+    sequent::{Split, Trace},
+    Ast, Multiset, Sequent,
 };
 use core::cmp::Reverse;
 use std::{
@@ -262,10 +262,10 @@ impl Inference {
     #[cfg_attr(debug_assertions, allow(clippy::print_stdout))]
     fn handle(
         self,
-        seen: &mut HashMap<Turnstile, State>,
+        seen: &mut HashMap<Sequent, State>,
         paths: &mut BinaryHeap<Reverse<Trace>>,
         paused: &mut HashSet<Split>,
-        original: &Turnstile,
+        original: &Sequent,
     ) -> bool {
         match self {
             Inference::Qed(history) => {
@@ -321,11 +321,11 @@ impl Inference {
 #[allow(unsafe_code)]
 #[cfg_attr(debug_assertions, allow(clippy::print_stdout))]
 fn cache_proof(
-    seen: &mut HashMap<Turnstile, State>,
+    seen: &mut HashMap<Sequent, State>,
     paused: &mut HashSet<Split>,
     mut trace: &Rc<Trace>,
     truth: bool,
-    original: &Turnstile,
+    original: &Sequent,
 ) -> Option<()> {
     let state = truth.into();
     loop {
@@ -380,7 +380,7 @@ fn cache_proof(
 #[inline]
 #[cfg_attr(debug_assertions, allow(clippy::print_stdout))]
 fn add_if_new(
-    seen: &mut HashMap<Turnstile, State>,
+    seen: &mut HashMap<Sequent, State>,
     paths: &mut BinaryHeap<Reverse<Trace>>,
     trace: Trace,
 ) {
@@ -403,7 +403,7 @@ impl Ast {
     #[inline]
     #[cfg_attr(debug_assertions, allow(clippy::print_stdout))]
     pub fn prove(self) -> Result<(), Error> {
-        let original = Turnstile::new(self);
+        let original = Sequent::new(self);
         let mut seen = HashMap::new();
         let mut paths = BinaryHeap::new();
         let mut paused: HashSet<Split> = HashSet::new();
@@ -464,7 +464,7 @@ impl Trace {
         #[cfg(test)]
         self.assert_acyclic();
         Inference::Linear(Self {
-            current: Turnstile { rhs: child },
+            current: Sequent { rhs: child },
             history: Some(Rc::clone(self)),
         })
     }
@@ -476,7 +476,7 @@ impl Trace {
         #[cfg(test)]
         self.assert_acyclic();
         Inference::Binary(Split {
-            turnstiles: [Turnstile { rhs: lhs }, Turnstile { rhs }]
+            turnstiles: [Sequent { rhs: lhs }, Sequent { rhs }]
                 .into_iter()
                 .collect(),
             history: Rc::clone(self),
@@ -601,7 +601,7 @@ impl Split {
     /// Check if we have proofs *cached* that establish the truth or falsity of a set of sequents.
     #[inline]
     #[cfg_attr(debug_assertions, allow(clippy::print_stdout))]
-    fn proven(&self, seen: &HashMap<Turnstile, State>) -> State {
+    fn proven(&self, seen: &HashMap<Sequent, State>) -> State {
         let mut all_proven = true;
         for turnstile in self {
             #[allow(unsafe_code)]
