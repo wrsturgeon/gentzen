@@ -7,7 +7,7 @@
 //! A turnstile symbol with comma-separated expressions on either (but currently just one) side.
 
 use crate::{Ast, Multiset};
-use std::rc::Rc;
+use std::{collections::BTreeSet, rc::Rc};
 
 /// A turnstile symbol with comma-separated expressions on either (but currently just one) side.
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
@@ -194,7 +194,21 @@ impl Ord for Trace {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         match self.current.cmp(&other.current) {
             diff @ (core::cmp::Ordering::Less | core::cmp::Ordering::Greater) => diff,
-            core::cmp::Ordering::Equal => self.age().cmp(&other.age()),
+            core::cmp::Ordering::Equal => {
+                let (mut lh, mut rh) = (self.history.as_ref(), other.history.as_ref());
+                loop {
+                    return match (lh, rh) {
+                        (None, None) => core::cmp::Ordering::Equal,
+                        (None, Some(_)) => core::cmp::Ordering::Less,
+                        (Some(_), None) => core::cmp::Ordering::Greater,
+                        (Some(next_lh), Some(next_rh)) => {
+                            lh = next_lh.history.as_ref();
+                            rh = next_rh.history.as_ref();
+                            continue;
+                        }
+                    };
+                }
+            }
         }
     }
 }
@@ -250,7 +264,15 @@ impl Trace {
 impl core::fmt::Display for Trace {
     #[inline]
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        core::fmt::Display::fmt(&self.current, f)
+        write!(
+            f,
+            "{} (would prove {})",
+            self.current,
+            self.history.as_ref().map_or_else(
+                || "nothing on its own".to_owned(),
+                |trace| trace.current.to_string()
+            )
+        )
     }
 }
 
@@ -297,13 +319,13 @@ impl quickcheck::Arbitrary for Trace {
     }
 }
 
+// TODO: Change `Trace` to `Turnstile` (but not in history ofc)
+
 /// Set of turnstiles all together on top of an inference line.
 #[derive(Clone, Debug, Default)]
 pub struct Split {
-    /// Left-hand turnstile.
-    pub(crate) lhs: Trace,
-    /// Right-hand turnstile.
-    pub(crate) rhs: Trace,
+    /// All turnstiles above the inference line.
+    pub(crate) turnstiles: BTreeSet<Trace>,
     /// All previous turnstiles that led up to this one.
     pub(crate) history: Rc<Trace>,
 }
@@ -311,8 +333,7 @@ pub struct Split {
 impl PartialEq for Split {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
-        (&self.lhs, &self.rhs) == (&other.lhs, &other.rhs)
-            || (&self.rhs, &self.lhs) == (&other.lhs, &other.rhs)
+        self.turnstiles == other.turnstiles
     }
 }
 
@@ -328,11 +349,23 @@ impl PartialOrd for Split {
 impl Ord for Split {
     #[inline]
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        let (lmin, lmax) = self.sort();
-        let (rmin, rmax) = other.sort();
-        match lmin.cmp(rmin) {
+        match self.turnstiles.cmp(&other.turnstiles) {
             diff @ (core::cmp::Ordering::Less | core::cmp::Ordering::Greater) => diff,
-            core::cmp::Ordering::Equal => lmax.cmp(rmax),
+            core::cmp::Ordering::Equal => {
+                let (mut lh, mut rh) = (&self.history, &other.history);
+                loop {
+                    return match (lh.history.as_ref(), rh.history.as_ref()) {
+                        (None, None) => core::cmp::Ordering::Equal,
+                        (None, Some(_)) => core::cmp::Ordering::Less,
+                        (Some(_), None) => core::cmp::Ordering::Greater,
+                        (Some(next_lh), Some(next_rh)) => {
+                            lh = next_lh;
+                            rh = next_rh;
+                            continue;
+                        }
+                    };
+                }
+            }
         }
     }
 }
@@ -340,30 +373,51 @@ impl Ord for Split {
 impl core::hash::Hash for Split {
     #[inline]
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-        let (min, max) = self.sort();
-        min.hash(state);
-        max.hash(state);
+        self.turnstiles.hash(state);
     }
 }
 
 impl core::fmt::Display for Split {
     #[inline]
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let (lhs, rhs) = self.sort();
-        write!(f, "[ {lhs}   {rhs} ]")
+        write!(
+            f,
+            "{} (would prove {})",
+            self.without_history(),
+            self.history.current
+        )
+    }
+}
+
+impl IntoIterator for Split {
+    type Item = Trace;
+    type IntoIter = std::collections::btree_set::IntoIter<Trace>;
+    #[inline(always)]
+    fn into_iter(self) -> Self::IntoIter {
+        self.turnstiles.into_iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a Split {
+    type Item = &'a Trace;
+    type IntoIter = std::collections::btree_set::Iter<'a, Trace>;
+    #[inline(always)]
+    fn into_iter(self) -> Self::IntoIter {
+        self.turnstiles.iter()
     }
 }
 
 impl Split {
-    /// Fix an arbitrary ordering.
+    /// Print without what it would prove (i.e. history).
     #[inline]
-    #[must_use]
-    pub fn sort(&self) -> (&Trace, &Trace) {
-        if self.rhs < self.lhs {
-            (&self.rhs, &self.lhs)
-        } else {
-            (&self.lhs, &self.rhs)
-        }
+    #[allow(clippy::arithmetic_side_effects)]
+    pub(crate) fn without_history(&self) -> String {
+        self.turnstiles
+            .iter()
+            .fold("[   ".to_owned(), |acc, trace| {
+                acc + &trace.current.to_string() + "   "
+            })
+            + "]"
     }
 }
 
@@ -371,11 +425,13 @@ impl Split {
 impl quickcheck::Arbitrary for Split {
     #[inline]
     fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        let lhs = quickcheck::Arbitrary::arbitrary(g);
-        let rhs = quickcheck::Arbitrary::arbitrary(g);
+        let turnstiles = Vec::arbitrary(g);
         loop {
             if let Some(history) = rc_list(Vec::arbitrary(g)) {
-                return Self { lhs, rhs, history };
+                return Self {
+                    turnstiles: turnstiles.into_iter().collect(),
+                    history,
+                };
             }
         }
     }
@@ -383,15 +439,13 @@ impl quickcheck::Arbitrary for Split {
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
         Box::new(
             (
-                self.lhs.clone(),
-                self.rhs.clone(),
+                self.turnstiles.clone(),
                 from_rc_list(Some(&Rc::new(self.history.as_ref().clone()))),
             )
                 .shrink()
-                .filter_map(|(lhs, rhs, history)| {
+                .filter_map(|(turnstiles, history)| {
                     Some(Self {
-                        lhs,
-                        rhs,
+                        turnstiles,
                         history: rc_list(history)?,
                     })
                 }),

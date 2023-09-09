@@ -153,65 +153,52 @@ fn prove_1_implies_1_implies_1_implies_1_implies_1_times_1() {
     );
 }
 
-#[inline]
-#[cfg(feature = "quickcheck")]
-fn eq_implies_hash<T: Eq + core::hash::Hash>(a: &T, b: &T) -> bool {
-    use {core::hash::Hasher, std::collections::hash_map::DefaultHasher};
-    if a != b {
-        return true;
-    }
-    let mut h = DefaultHasher::new();
-    a.hash(&mut h);
-    let hash_a = h.finish();
-    h = DefaultHasher::new();
-    b.hash(&mut h);
-    let hash_b = h.finish();
-    hash_a == hash_b
+#[test]
+fn prove_excluded_middle_par() {
+    assert_eq!((Ast::Value(0).par(-Ast::Value(0))).prove(), Ok(()));
 }
+
+#[test]
+fn cant_prove_excluded_middle_plus() {
+    assert_eq!(
+        (Ast::Value(0) + -Ast::Value(0)).prove(),
+        Err(proof::Error::RanOutOfPaths)
+    );
+}
+
+#[test]
+fn cant_prove_excluded_middle_with() {
+    assert_eq!(
+        (Ast::Value(0) & -Ast::Value(0)).prove(),
+        Err(proof::Error::RanOutOfPaths)
+    );
+}
+
+// #[inline]
+// #[cfg(feature = "quickcheck")]
+// fn eq_implies_hash<T: Eq + core::hash::Hash>(a: &T, b: &T) -> bool {
+//     use {core::hash::Hasher, std::collections::hash_map::DefaultHasher};
+//     if a != b {
+//         return true;
+//     }
+//     let mut h = DefaultHasher::new();
+//     a.hash(&mut h);
+//     let hash_a = h.finish();
+//     h = DefaultHasher::new();
+//     b.hash(&mut h);
+//     let hash_b = h.finish();
+//     hash_a == hash_b
+// }
 
 #[cfg(feature = "quickcheck")]
 quickcheck::quickcheck! {
-    fn trace_eq_implies_equal_hashes(a: turnstile::Trace, b: turnstile::Trace) -> bool {
-        eq_implies_hash(&a, &b)
-    }
-
-    fn split_eq_implies_equal_hashes(a: turnstile::Split, b: turnstile::Split) -> bool {
-        eq_implies_hash(&a, &b)
-    }
-
-    fn split_swap_still_equal_hashes(split: turnstile::Split) -> bool {
-        use {core::hash::{Hash, Hasher}, std::{collections::hash_map::DefaultHasher, rc::Rc}};
-        let &turnstile::Split{ ref lhs, ref rhs, ref history } = &split;
-        let swap = turnstile::Split { lhs: rhs.clone(), rhs: lhs.clone(), history: Rc::clone(history) };
-        if split != swap {
-            return false;
-        }
-        let mut h = DefaultHasher::new();
-        split.hash(&mut h);
-        let hash_a = h.finish();
-        h = DefaultHasher::new();
-        swap.hash(&mut h);
-        let hash_b = h.finish();
-        hash_a == hash_b
-    }
-
-    // #[allow(clippy::double_neg)]
-    // fn involutive_dual(ast: Ast) -> bool { (--ast.clone()) == ast }
-
-    // fn sorted_after_sort(ast: Ast) -> bool { ast.sort().sorted() == Ok(()) }
-    // fn sorted_invariant_over_sort(ast: Ast) -> bool {
-    //     let sorted = ast.sort();
-    //     sorted.clone().sort() == sorted
+    // fn trace_eq_implies_equal_hashes(a: turnstile::Trace, b: turnstile::Trace) -> bool {
+    //     eq_implies_hash(&a, &b)
     // }
 
-    // fn sorted_after_bang(ast: Ast) -> bool { bang(ast.sort()).sorted() == Ok(()) }
-    // fn sorted_after_quest(ast: Ast) -> bool { quest(ast.sort()).sorted() == Ok(()) }
-    // fn sorted_after_dual(ast: Ast) -> bool { (-(ast.sort())).sorted() == Ok(()) }
-    // fn sorted_after_times(lhs: Ast, rhs: Ast) -> bool { (lhs.sort() * rhs.sort()).sorted() == Ok(()) }
-    // fn sorted_after_par(lhs: Ast, rhs: Ast) -> bool { lhs.sort().par(rhs.sort()).sorted() == Ok(()) }
-    // fn sorted_after_with(lhs: Ast, rhs: Ast) -> bool { (lhs.sort() & rhs.sort()).sorted() == Ok(()) }
-    // fn sorted_after_plus(lhs: Ast, rhs: Ast) -> bool { (lhs.sort() + rhs.sort()).sorted() == Ok(()) }
-    // fn sorted_after_lollipop(lhs: Ast, rhs: Ast) -> bool { (lhs.sort() - rhs.sort()).sorted() == Ok(()) }
+    // fn split_eq_implies_equal_hashes(a: turnstile::Split, b: turnstile::Split) -> bool {
+    //     eq_implies_hash(&a, &b)
+    // }
 }
 
 mod reduced {
