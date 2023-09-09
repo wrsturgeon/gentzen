@@ -13,14 +13,6 @@ fn cant_prove_0() {
     assert_eq!(Ast::Zero.prove(), Err(proof::Error::RanOutOfPaths));
 }
 
-// #[test]
-// fn cant_prove_0_times_1() {
-//     assert_eq!(
-//         (Ast::Zero * Ast::One).prove(),
-//         Err(proof::Error::RanOutOfPaths),
-//     );
-// }
-
 #[test]
 fn prove_1() {
     assert_eq!(Ast::One.prove(), Ok(()));
@@ -104,6 +96,61 @@ fn a_with_b_implies_b() {
 #[test]
 fn bottom_implies_bottom() {
     assert_eq!((Ast::Bottom - Ast::Bottom).prove(), Ok(()));
+}
+
+#[test]
+fn prove_1_times_1() {
+    assert_eq!((Ast::One * Ast::One).prove(), Ok(()));
+}
+
+#[test]
+fn cant_prove_1_times_0() {
+    assert_eq!(
+        (Ast::One * Ast::Zero).prove(),
+        Err(proof::Error::RanOutOfPaths)
+    );
+}
+
+#[test]
+fn cant_prove_0_times_1() {
+    assert_eq!(
+        (Ast::Zero * Ast::One).prove(),
+        Err(proof::Error::RanOutOfPaths)
+    );
+}
+
+#[test]
+fn cant_prove_0_times_0() {
+    assert_eq!(
+        (Ast::Zero * Ast::Zero).prove(),
+        Err(proof::Error::RanOutOfPaths)
+    );
+}
+
+#[test]
+fn prove_1_times_1_times_1() {
+    assert_eq!((Ast::One * Ast::One * Ast::One).prove(), Ok(()));
+}
+
+#[test]
+fn prove_1_times_1_times_1_times_1() {
+    assert_eq!((Ast::One * Ast::One * Ast::One * Ast::One).prove(), Ok(()));
+}
+
+#[test]
+fn prove_1_times_1_times_1_times_1_times_1() {
+    assert_eq!(
+        (Ast::One * Ast::One * Ast::One * Ast::One * Ast::One).prove(),
+        Ok(())
+    );
+}
+
+#[test]
+fn prove_1_implies_1_implies_1_implies_1_implies_1_times_1() {
+    assert_eq!(
+        (Ast::One - (Ast::One - (Ast::One - (Ast::One - (Ast::One * Ast::One))))).prove(),
+        Ok(())
+    );
 }
 
 #[inline]

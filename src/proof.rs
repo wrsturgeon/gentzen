@@ -260,43 +260,21 @@ impl Inference {
     #[inline]
     #[allow(unsafe_code)]
     #[allow(clippy::print_stdout)] // FIXME: remove `println!`s
-    #[allow(clippy::too_many_lines)] // FIXME
     fn handle(
         self,
         seen: &mut HashMap<Turnstile, State>,
         paths: &mut BinaryHeap<Reverse<Trace>>,
         paused: &mut HashSet<Split>,
         original: &Turnstile,
-        #[cfg(test)] visited: &mut HashSet<Rc<Trace>>,
     ) -> bool {
         match self {
             Inference::Qed(history) => {
-                if cache_proof(
-                    seen,
-                    paused,
-                    &history,
-                    true,
-                    original,
-                    #[cfg(test)]
-                    visited,
-                )
-                .is_none()
-                {
+                if cache_proof(seen, paused, &history, true, original).is_none() {
                     return true;
                 }
             }
             Inference::Contradiction(history) => {
-                if cache_proof(
-                    seen,
-                    paused,
-                    &history,
-                    false,
-                    original,
-                    #[cfg(test)]
-                    visited,
-                )
-                .is_none()
-                {
+                if cache_proof(seen, paused, &history, false, original).is_none() {
                     return true;
                 }
             }
@@ -317,40 +295,21 @@ impl Inference {
                     (&State::True, &State::True) => {
                         let (sl, sr) = split.sort();
                         println!("    Proved [ {sl}   {sr} ]");
-                        if cache_proof(
-                            seen,
-                            paused,
-                            &split.history,
-                            true,
-                            original,
-                            #[cfg(test)]
-                            visited,
-                        )
-                        .is_none()
-                        {
+                        if cache_proof(seen, paused, &split.history, true, original).is_none() {
                             return true;
                         }
                     }
                     (&State::False, _) | (_, &State::False) => {
                         let (sl, sr) = split.sort();
                         println!("    Disproved [ {sl}   {sr} ]");
-                        if cache_proof(
-                            seen,
-                            paused,
-                            &split.history,
-                            false,
-                            original,
-                            #[cfg(test)]
-                            visited,
-                        )
-                        .is_none()
-                        {
+                        if cache_proof(seen, paused, &split.history, false, original).is_none() {
                             return true;
                         }
                     }
                     _ => {
-                        println!("    Pausing {split}");
-                        let _ = paused.insert(split);
+                        if paused.insert(split.clone()) {
+                            println!("    Pausing {split}");
+                        }
                     }
                 }
             }
@@ -369,25 +328,7 @@ fn cache_proof(
     mut trace: &Rc<Trace>,
     truth: bool,
     original: &Turnstile,
-    #[cfg(test)] visited: &mut HashSet<Rc<Trace>>,
-    // ) -> Option<impl IntoIterator<Item = Split>> {
 ) -> Option<()> {
-    #[cfg(test)]
-    {
-        assert!(
-            !visited.contains(trace),
-            "`cache_proof` recursing on the same input: `trace = {trace}`",
-        );
-        let _ = visited.insert(Rc::clone(trace));
-    }
-    // TODO: Remove this `if` statement!
-    if matches!(
-        seen.get(&trace.current),
-        Some(&(State::False | State::True))
-    ) {
-        // return Some(HashSet::new());
-        return Some(());
-    }
     let state = truth.into();
     loop {
         println!(
@@ -437,7 +378,7 @@ fn cache_proof(
     for &(ref split, proven) in &remove {
         let (lhs, rhs) = split.sort();
         println!(
-            "    {}roved [ {lhs} {rhs} ]",
+            "    {}roved [ {lhs}   {rhs} ]",
             if proven { "P" } else { "Disp" },
         );
         assert!(
@@ -446,15 +387,7 @@ fn cache_proof(
         );
     }
     for (split, proven) in remove {
-        cache_proof(
-            seen,
-            paused,
-            &split.history,
-            proven,
-            original,
-            #[cfg(test)]
-            visited,
-        )?;
+        cache_proof(seen, paused, &split.history, proven, original)?;
     }
     Some(())
 }
@@ -497,14 +430,7 @@ impl Ast {
         while let Some(Reverse(path)) = paths.pop() {
             println!("Testing {path}");
             for expansion in Rc::new(path).infer() {
-                if expansion.handle(
-                    &mut seen,
-                    &mut paths,
-                    &mut paused,
-                    &original,
-                    #[cfg(test)]
-                    &mut HashSet::new(),
-                ) {
+                if expansion.handle(&mut seen, &mut paths, &mut paused, &original) {
                     return Ok(());
                 }
             }
@@ -602,7 +528,6 @@ impl Trace {
 impl Ast {
     /// All possible "next moves" in a sequent-calculus proof search.
     #[inline]
-    #[allow(clippy::todo)] // FIXME
     pub(crate) fn infer(
         &self,
         context: Multiset<Ast>,
@@ -649,7 +574,30 @@ impl Ast {
                     Box::new(Self::Dual(rhs.clone())),
                 ),
             }]))],
-            &Self::Times(ref _lhs, ref _rhs) => todo!(),
+            &Self::Times(ref blhs, ref brhs) => {
+                let lhs = blhs.as_ref();
+                let rhs = brhs.as_ref();
+                let power_of_2 = 1_usize
+                    .checked_shl(context.len().try_into().expect("Ridiculously huge value"))
+                    .expect("More elements in a sequent than bits in a `usize`");
+                (0..power_of_2)
+                    .flat_map(|bits| {
+                        let (mut lctx, mut rctx) = (Multiset::new(), Multiset::new());
+                        for (i, ast) in context.iter().enumerate() {
+                            let _ = if bits & (1 << i) == 0 {
+                                &mut lctx
+                            } else {
+                                &mut rctx
+                            }
+                            .insert(ast.clone());
+                        }
+                        [
+                            parent.two(lctx.with([lhs.clone()]), rctx.with([rhs.clone()])),
+                            parent.two(rctx.with([lhs.clone()]), lctx.with([rhs.clone()])),
+                        ]
+                    })
+                    .collect()
+            }
             &Self::Par(ref lhs, ref rhs) => {
                 vec![parent.one(context.with([lhs.as_ref().clone(), rhs.as_ref().clone()]))]
             }
