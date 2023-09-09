@@ -319,13 +319,11 @@ impl quickcheck::Arbitrary for Trace {
     }
 }
 
-// TODO: Change `Trace` to `Turnstile` (but not in history ofc)
-
 /// Set of turnstiles all together on top of an inference line.
 #[derive(Clone, Debug, Default)]
 pub struct Split {
     /// All turnstiles above the inference line.
-    pub(crate) turnstiles: BTreeSet<Trace>,
+    pub(crate) turnstiles: BTreeSet<Turnstile>,
     /// All previous turnstiles that led up to this one.
     pub(crate) history: Rc<Trace>,
 }
@@ -390,8 +388,8 @@ impl core::fmt::Display for Split {
 }
 
 impl IntoIterator for Split {
-    type Item = Trace;
-    type IntoIter = std::collections::btree_set::IntoIter<Trace>;
+    type Item = Turnstile;
+    type IntoIter = std::collections::btree_set::IntoIter<Turnstile>;
     #[inline(always)]
     fn into_iter(self) -> Self::IntoIter {
         self.turnstiles.into_iter()
@@ -399,8 +397,8 @@ impl IntoIterator for Split {
 }
 
 impl<'a> IntoIterator for &'a Split {
-    type Item = &'a Trace;
-    type IntoIter = std::collections::btree_set::Iter<'a, Trace>;
+    type Item = &'a Turnstile;
+    type IntoIter = std::collections::btree_set::Iter<'a, Turnstile>;
     #[inline(always)]
     fn into_iter(self) -> Self::IntoIter {
         self.turnstiles.iter()
@@ -414,8 +412,8 @@ impl Split {
     pub(crate) fn without_history(&self) -> String {
         self.turnstiles
             .iter()
-            .fold("[   ".to_owned(), |acc, trace| {
-                acc + &trace.current.to_string() + "   "
+            .fold("[   ".to_owned(), |acc, turnstile| {
+                acc + &turnstile.to_string() + "   "
             })
             + "]"
     }

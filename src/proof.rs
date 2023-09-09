@@ -259,7 +259,7 @@ impl Inference {
     /// Update a proof in response to an inference.
     #[inline]
     #[allow(unsafe_code)]
-    #[allow(clippy::print_stdout)] // FIXME: remove `println!`s
+    #[cfg_attr(debug_assertions, allow(clippy::print_stdout))]
     fn handle(
         self,
         seen: &mut HashMap<Turnstile, State>,
@@ -280,8 +280,15 @@ impl Inference {
             }
             Inference::Linear(trace) => add_if_new(seen, paths, trace),
             Inference::Binary(split) => {
-                for trace in &split {
-                    add_if_new(seen, paths, trace.clone());
+                for turnstile in &split {
+                    add_if_new(
+                        seen,
+                        paths,
+                        Trace {
+                            current: turnstile.clone(),
+                            history: None,
+                        },
+                    );
                 }
                 match split.proven(seen) {
                     State::True => {
@@ -295,9 +302,12 @@ impl Inference {
                         }
                     }
                     State::Unknown => {
+                        #[cfg(debug_assertions)]
                         if paused.insert(split.clone()) {
                             println!("    Pausing {split}");
                         }
+                        #[cfg(not(debug_assertions))]
+                        let _ = paused.insert(split.clone());
                     }
                 }
             }
@@ -309,7 +319,7 @@ impl Inference {
 /// Step through each turnstile in this proof and mark it with the provided state.
 #[inline]
 #[allow(unsafe_code)]
-#[allow(clippy::print_stdout)] // FIXME: remove `println!`s
+#[cfg_attr(debug_assertions, allow(clippy::print_stdout))]
 fn cache_proof(
     seen: &mut HashMap<Turnstile, State>,
     paused: &mut HashSet<Split>,
@@ -319,6 +329,7 @@ fn cache_proof(
 ) -> Option<()> {
     let state = truth.into();
     loop {
+        #[cfg(debug_assertions)]
         println!(
             "    {}roved {}",
             if truth { "P" } else { "Disp" },
@@ -367,7 +378,7 @@ fn cache_proof(
 
 /// Add this turnstile to the queue iff we haven't seen it before.
 #[inline]
-#[allow(clippy::print_stdout)] // FIXME: remove `println!`s
+#[cfg_attr(debug_assertions, allow(clippy::print_stdout))]
 fn add_if_new(
     seen: &mut HashMap<Turnstile, State>,
     paths: &mut BinaryHeap<Reverse<Trace>>,
@@ -376,6 +387,7 @@ fn add_if_new(
     match seen.entry(trace.current.clone()) {
         Entry::Vacant(unseen) => {
             let _ = unseen.insert(State::Unknown);
+            #[cfg(debug_assertions)]
             println!("    Adding {trace}");
             paths.push(Reverse(trace));
         }
@@ -389,7 +401,7 @@ impl Ast {
     /// # Errors
     /// If we can't.
     #[inline]
-    #[allow(clippy::print_stdout)] // FIXME: remove `println!`s
+    #[cfg_attr(debug_assertions, allow(clippy::print_stdout))]
     pub fn prove(self) -> Result<(), Error> {
         let original = Turnstile::new(self);
         let mut seen = HashMap::new();
@@ -401,6 +413,7 @@ impl Ast {
             history: None,
         }));
         while let Some(Reverse(path)) = paths.pop() {
+            #[cfg(debug_assertions)]
             println!("Testing {path}");
             for expansion in Rc::new(path).infer() {
                 if expansion.handle(&mut seen, &mut paths, &mut paused, &original) {
@@ -463,18 +476,9 @@ impl Trace {
         #[cfg(test)]
         self.assert_acyclic();
         Inference::Binary(Split {
-            turnstiles: [
-                Self {
-                    current: Turnstile { rhs: lhs },
-                    history: None,
-                },
-                Self {
-                    current: Turnstile { rhs },
-                    history: None,
-                },
-            ]
-            .into_iter()
-            .collect(),
+            turnstiles: [Turnstile { rhs: lhs }, Turnstile { rhs }]
+                .into_iter()
+                .collect(),
             history: Rc::clone(self),
         })
     }
@@ -596,14 +600,15 @@ impl Ast {
 impl Split {
     /// Check if we have proofs *cached* that establish the truth or falsity of a set of sequents.
     #[inline]
-    #[allow(clippy::print_stdout)] // FIXME: remove `println!`s
+    #[cfg_attr(debug_assertions, allow(clippy::print_stdout))]
     fn proven(&self, seen: &HashMap<Turnstile, State>) -> State {
         let mut all_proven = true;
-        for trace in self {
+        for turnstile in self {
             #[allow(unsafe_code)]
             // SAFETY: Always added to `seen` before being traced.
-            match unsafe { seen.get(&trace.current).unwrap_unchecked() } {
+            match unsafe { seen.get(turnstile).unwrap_unchecked() } {
                 &State::False => {
+                    #[cfg(debug_assertions)]
                     println!("    Disproved {self}");
                     return State::False;
                 }
@@ -612,6 +617,7 @@ impl Split {
             }
         }
         if all_proven {
+            #[cfg(debug_assertions)]
             println!("    Proved {}", self.without_history());
             State::True
         } else {
