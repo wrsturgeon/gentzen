@@ -46,16 +46,13 @@ impl<S: Sequent> Thunk<S> {
     /// Add a sequent to be proven, or if it's already been proven, return `Err(AlreadyProven)`.
     #[inline]
     pub(crate) fn push(&mut self, sequent: S) -> Result<(), AlreadyProven> {
-        match self.cache.entry(sequent.clone()).or_insert(false) {
-            &mut false => {
-                dbg_println!("    Adding {sequent}");
-                self.queue.push(Reverse(sequent));
-                Ok(())
-            }
-            &mut true => {
-                dbg_println!("    Already proved {sequent}");
-                Err(AlreadyProven)
-            }
+        if *self.cache.entry(sequent.clone()).or_insert(false) {
+            dbg_println!("    Already proved {sequent}");
+            Err(AlreadyProven)
+        } else {
+            dbg_println!("    Adding {sequent}");
+            self.queue.push(Reverse(sequent));
+            Ok(())
         }
     }
 

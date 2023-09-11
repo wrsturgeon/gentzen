@@ -33,10 +33,10 @@ pub trait Sequent: Clone + Display + Hash + Ord {
     fn from_rhs(rhs_element: Self::Item) -> Self;
     /// View everything to the left of the turnstile.
     #[must_use]
-    fn lhs_contains(&self, element: &Self::Item) -> bool;
+    fn lhs(&self) -> &Self::Lhs;
     /// View everything to the right of the turnstile.
     #[must_use]
-    fn rhs_contains(&self, element: &Self::Item) -> bool;
+    fn rhs(&self) -> &Self::Rhs;
     /// For each unique item in the sequent (defined however you'd like),
     /// return a pair that separates that item from everything else.
     #[must_use]

@@ -39,6 +39,29 @@ impl<T: Ord> Ord for Multiset<T> {
     }
 }
 
+impl<T: Ord> FromIterator<T> for Multiset<T> {
+    #[inline(always)]
+    #[allow(unsafe_code)]
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+        let mut ms = Self::new();
+        for element in iter {
+            let _ = ms.insert(element);
+        }
+        ms
+    }
+}
+
+impl<T: core::fmt::Display + Ord> core::fmt::Display for Multiset<T> {
+    #[inline]
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{{ ")?;
+        for (element, count) in self.iter_unique() {
+            write!(f, "{count}x {element}")?;
+        }
+        write!(f, "}}")
+    }
+}
+
 impl<T: Ord> Multiset<T> {
     /// Empty multiset.
     #[must_use]
@@ -160,18 +183,6 @@ impl<T: Clone + Ord> Multiset<T> {
     pub fn with<I: IntoIterator<Item = T>>(&self, additions: I) -> Self {
         let mut ms = self.clone();
         for element in additions {
-            let _ = ms.insert(element);
-        }
-        ms
-    }
-}
-
-impl<T: Ord> FromIterator<T> for Multiset<T> {
-    #[inline(always)]
-    #[allow(unsafe_code)]
-    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
-        let mut ms = Self::new();
-        for element in iter {
             let _ = ms.insert(element);
         }
         ms

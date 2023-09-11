@@ -65,7 +65,6 @@
     clippy::implicit_return,
     clippy::inline_always,
     clippy::let_underscore_untyped,
-    clippy::match_ref_pats,
     clippy::min_ident_chars,
     clippy::missing_trait_methods,
     clippy::mod_module_files,
@@ -102,7 +101,6 @@ macro_rules! dbg_println {
     ($($arg:tt)*) => {};
 }
 
-mod ast;
 mod infer;
 mod inference;
 mod multiset;
@@ -112,7 +110,6 @@ pub mod sequents;
 mod thunk;
 
 pub use {
-    ast::{bang, quest, Ast},
     infer::Infer,
     inference::Inference,
     multiset::Multiset,

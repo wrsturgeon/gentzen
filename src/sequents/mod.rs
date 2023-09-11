@@ -6,35 +6,36 @@
 
 //! A turnstile symbol with comma-separated expressions on either (but currently just one) side.
 
-use crate::{Ast, Multiset, Sequent};
+use crate::{Infer, Multiset, Sequent};
+use core::{fmt::Display, hash::Hash};
 
 /// A turnstile symbol with comma-separated expressions on either (but currently just one) side.
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
-pub struct RhsOnlyWithExchange {
+pub struct RhsOnlyWithExchange<Item: Clone + Display + Hash + Infer<Self> + Ord> {
     // /// Left side of the turnstile, on which comma means times.
-    // pub(crate) lhs: Multiset<Ast>,
+    // pub(crate) lhs: Multiset<Item>,
     /// Right side of the turnstile, on which comma means par.
-    pub(crate) rhs: Multiset<Ast>,
+    pub(crate) rhs: Multiset<Item>,
 }
 
-impl PartialOrd for RhsOnlyWithExchange {
+impl<Item: Clone + Display + Hash + Infer<Self> + Ord> PartialOrd for RhsOnlyWithExchange<Item> {
     #[inline(always)]
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for RhsOnlyWithExchange {
+impl<Item: Clone + Display + Hash + Infer<Self> + Ord> Ord for RhsOnlyWithExchange<Item> {
     #[inline(always)]
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.rhs.cmp(&other.rhs)
     }
 }
 
-impl Sequent for RhsOnlyWithExchange {
-    type Item = Ast;
+impl<Item: Clone + Display + Hash + Infer<Self> + Ord> Sequent for RhsOnlyWithExchange<Item> {
+    type Item = Item;
     type Lhs = ();
-    type Rhs = Multiset<Ast>;
+    type Rhs = Multiset<Item>;
     #[inline(always)]
     fn from_rhs(rhs_element: Self::Item) -> Self {
         let mut rhs = Multiset::new();
@@ -42,12 +43,12 @@ impl Sequent for RhsOnlyWithExchange {
         Self { rhs }
     }
     #[inline(always)]
-    fn lhs_contains(&self, _: &Self::Item) -> bool {
-        false
+    fn lhs(&self) -> &Self::Lhs {
+        &()
     }
     #[inline(always)]
-    fn rhs_contains(&self, element: &Self::Item) -> bool {
-        self.rhs.contains(element)
+    fn rhs(&self) -> &Self::Rhs {
+        &self.rhs
     }
     #[inline]
     fn sample(&self) -> Vec<(Self::Item, Self)> {
@@ -62,7 +63,13 @@ impl Sequent for RhsOnlyWithExchange {
     }
 }
 
-impl RhsOnlyWithExchange {
+impl<Item: Clone + Display + Hash + Infer<Self> + Ord> RhsOnlyWithExchange<Item> {
+    /// New sequent with exactly this on the right-hand side.
+    #[must_use]
+    #[inline(always)]
+    pub const fn new(rhs: Multiset<Item>) -> Self {
+        Self { rhs }
+    }
     /// Total number of comma-separated expressions.
     #[must_use]
     #[inline(always)]
@@ -81,7 +88,7 @@ impl RhsOnlyWithExchange {
     /// Clone and insert an element into the clone.
     #[must_use]
     #[inline(always)]
-    pub fn with<I: IntoIterator<Item = Ast>>(&self, additions: I) -> Self {
+    pub fn with<I: IntoIterator<Item = Item>>(&self, additions: I) -> Self {
         Self {
             rhs: self.rhs.with(additions),
         }
@@ -90,18 +97,18 @@ impl RhsOnlyWithExchange {
     /// If this collection has exactly one element, view it without taking it out.
     #[must_use]
     #[inline(always)]
-    pub fn only(&self) -> Option<&Ast> {
+    pub fn only(&self) -> Option<&Item> {
         self.rhs.only()
     }
 
     /// Take an element by decreasing its count if we can.
     #[inline(always)]
-    pub fn take(&mut self, element: &Ast) -> bool {
+    pub fn take(&mut self, element: &Item) -> bool {
         self.rhs.take(element)
     }
 }
 
-impl core::fmt::Display for RhsOnlyWithExchange {
+impl<Item: Clone + Display + Hash + Infer<Self> + Ord> Display for RhsOnlyWithExchange<Item> {
     #[inline]
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "\u{22a2}")?;
@@ -117,7 +124,9 @@ impl core::fmt::Display for RhsOnlyWithExchange {
 }
 
 #[cfg(feature = "quickcheck")]
-impl quickcheck::Arbitrary for RhsOnlyWithExchange {
+impl<Item: Clone + Display + Hash + Infer<Self> + Ord + quickcheck::Arbitrary> quickcheck::Arbitrary
+    for RhsOnlyWithExchange<Item>
+{
     #[inline]
     fn arbitrary(g: &mut quickcheck::Gen) -> Self {
         Self {
