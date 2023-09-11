@@ -127,8 +127,14 @@ impl<T: Ord> Multiset<T> {
 
     /// Iterate over elements without copying them, visiting duplicate elements only once.
     #[inline]
-    pub fn iter_unique(&self) -> impl Iterator<Item = (&T, &NonZeroUsize)> {
+    pub fn iter_unique(&self) -> std::collections::btree_map::Iter<'_, T, NonZeroUsize> {
         self.0.iter()
+    }
+
+    /// Iterate over elements, visiting duplicate elements only once.
+    #[inline]
+    pub fn into_iter_unique(self) -> std::collections::btree_map::IntoKeys<T, NonZeroUsize> {
+        self.0.into_keys()
     }
 
     /// Iterate over elements without copying them, visiting duplicate elements more than once.

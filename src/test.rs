@@ -4,54 +4,68 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-#![allow(clippy::arithmetic_side_effects, clippy::panic, clippy::print_stdout)]
+#![allow(
+    clippy::arithmetic_side_effects,
+    clippy::default_numeric_fallback,
+    clippy::panic
+)]
 
 use crate::*;
 
 #[test]
 fn cant_prove_0() {
-    assert_eq!(Ast::Zero.prove(), Err(proof::Error::RanOutOfPaths));
+    assert_eq!(prove(Ast::Zero), Err(proof::Error::RanOutOfPaths));
 }
 
 #[test]
 fn prove_1() {
-    assert_eq!(Ast::One.prove(), Ok(()));
+    assert_eq!(prove(Ast::One), Ok(()));
+}
+
+#[test]
+fn prove_top() {
+    assert_eq!(prove(Ast::Top), Ok(()));
+}
+
+#[test]
+fn prove_zero_par_top() {
+    assert_eq!(prove(Ast::Zero.par(Ast::Top)), Ok(()));
 }
 
 #[test]
 fn prove_0_implies_0() {
-    assert_eq!((Ast::Zero - Ast::Zero).prove(), Ok(()));
+    assert_eq!(prove(Ast::Zero - Ast::Zero), Ok(()));
 }
 
 #[test]
 fn prove_0_plus_1() {
-    assert_eq!((Ast::Zero + Ast::One).prove(), Ok(()));
+    assert_eq!(prove(Ast::Zero + Ast::One), Ok(()));
 }
 
 #[test]
 fn prove_1_plus_0() {
-    assert_eq!((Ast::One + Ast::Zero).prove(), Ok(()));
+    assert_eq!(prove(Ast::One + Ast::Zero), Ok(()));
 }
 
 #[test]
 fn prove_1_with_1() {
-    assert_eq!((Ast::One & Ast::One).prove(), Ok(()));
+    assert_eq!(prove(Ast::One & Ast::One), Ok(()));
 }
 
 #[test]
 fn prove_1_with_1_with_1() {
-    assert_eq!((Ast::One & Ast::One & Ast::One).prove(), Ok(()));
+    assert_eq!(prove(Ast::One & Ast::One & Ast::One), Ok(()));
 }
 
 #[test]
 fn prove_1_with_1_with_1_with_1() {
-    assert_eq!((Ast::One & Ast::One & Ast::One & Ast::One).prove(), Ok(()));
+    assert_eq!(prove(Ast::One & Ast::One & Ast::One & Ast::One), Ok(()));
 }
 
 #[test]
 fn prove_1_with_1_with_1_with_1_with_1() {
     assert_eq!(
-        (Ast::One & Ast::One & Ast::One & Ast::One & Ast::One).prove(),
+        prove(Ast::One & Ast::One & Ast::One & Ast::One & Ast::One),
         Ok(())
     );
 }
@@ -59,7 +73,7 @@ fn prove_1_with_1_with_1_with_1_with_1() {
 #[test]
 fn cant_prove_0_with_1() {
     assert_eq!(
-        (Ast::Zero & Ast::One).prove(),
+        prove(Ast::Zero & Ast::One),
         Err(proof::Error::RanOutOfPaths),
     );
 }
@@ -67,20 +81,15 @@ fn cant_prove_0_with_1() {
 #[test]
 fn cant_prove_1_with_0() {
     assert_eq!(
-        (Ast::One & Ast::Zero).prove(),
+        prove(Ast::One & Ast::Zero),
         Err(proof::Error::RanOutOfPaths),
     );
 }
 
-// #[test]
-// fn bang_a_implies_a() {
-//     assert_eq!((bang(Ast::Value(0)) - Ast::Value(0)).prove(), Ok(()));
-// }
-
 #[test]
 fn a_with_b_implies_a() {
     assert_eq!(
-        ((Ast::Value(0) & Ast::Value(1)) - Ast::Value(0)).prove(),
+        prove((Ast::Value(0) & Ast::Value(1)) - Ast::Value(0)),
         Ok(()),
     );
 }
@@ -88,25 +97,25 @@ fn a_with_b_implies_a() {
 #[test]
 fn a_with_b_implies_b() {
     assert_eq!(
-        ((Ast::Value(0) & Ast::Value(1)) - Ast::Value(1)).prove(),
+        prove((Ast::Value(0) & Ast::Value(1)) - Ast::Value(1)),
         Ok(()),
     );
 }
 
 #[test]
 fn bottom_implies_bottom() {
-    assert_eq!((Ast::Bottom - Ast::Bottom).prove(), Ok(()));
+    assert_eq!(prove(Ast::Bottom - Ast::Bottom), Ok(()));
 }
 
 #[test]
 fn prove_1_times_1() {
-    assert_eq!((Ast::One * Ast::One).prove(), Ok(()));
+    assert_eq!(prove(Ast::One * Ast::One), Ok(()));
 }
 
 #[test]
 fn cant_prove_1_times_0() {
     assert_eq!(
-        (Ast::One * Ast::Zero).prove(),
+        prove(Ast::One * Ast::Zero),
         Err(proof::Error::RanOutOfPaths)
     );
 }
@@ -114,7 +123,7 @@ fn cant_prove_1_times_0() {
 #[test]
 fn cant_prove_0_times_1() {
     assert_eq!(
-        (Ast::Zero * Ast::One).prove(),
+        prove(Ast::Zero * Ast::One),
         Err(proof::Error::RanOutOfPaths)
     );
 }
@@ -122,25 +131,25 @@ fn cant_prove_0_times_1() {
 #[test]
 fn cant_prove_0_times_0() {
     assert_eq!(
-        (Ast::Zero * Ast::Zero).prove(),
+        prove(Ast::Zero * Ast::Zero),
         Err(proof::Error::RanOutOfPaths)
     );
 }
 
 #[test]
 fn prove_1_times_1_times_1() {
-    assert_eq!((Ast::One * Ast::One * Ast::One).prove(), Ok(()));
+    assert_eq!(prove(Ast::One * Ast::One * Ast::One), Ok(()));
 }
 
 #[test]
 fn prove_1_times_1_times_1_times_1() {
-    assert_eq!((Ast::One * Ast::One * Ast::One * Ast::One).prove(), Ok(()));
+    assert_eq!(prove(Ast::One * Ast::One * Ast::One * Ast::One), Ok(()));
 }
 
 #[test]
 fn prove_1_times_1_times_1_times_1_times_1() {
     assert_eq!(
-        (Ast::One * Ast::One * Ast::One * Ast::One * Ast::One).prove(),
+        prove(Ast::One * Ast::One * Ast::One * Ast::One * Ast::One),
         Ok(())
     );
 }
@@ -148,20 +157,20 @@ fn prove_1_times_1_times_1_times_1_times_1() {
 #[test]
 fn prove_1_implies_1_implies_1_implies_1_implies_1_times_1() {
     assert_eq!(
-        (Ast::One - (Ast::One - (Ast::One - (Ast::One - (Ast::One * Ast::One))))).prove(),
+        prove(Ast::One - (Ast::One - (Ast::One - (Ast::One - (Ast::One * Ast::One))))),
         Ok(())
     );
 }
 
 #[test]
 fn prove_excluded_middle_par() {
-    assert_eq!((Ast::Value(0).par(-Ast::Value(0))).prove(), Ok(()));
+    assert_eq!(prove(Ast::Value(0).par(-Ast::Value(0))), Ok(()));
 }
 
 #[test]
 fn cant_prove_excluded_middle_plus() {
     assert_eq!(
-        (Ast::Value(0) + -Ast::Value(0)).prove(),
+        prove(Ast::Value(0) + -Ast::Value(0)),
         Err(proof::Error::RanOutOfPaths)
     );
 }
@@ -169,34 +178,18 @@ fn cant_prove_excluded_middle_plus() {
 #[test]
 fn cant_prove_excluded_middle_with() {
     assert_eq!(
-        (Ast::Value(0) & -Ast::Value(0)).prove(),
+        prove(Ast::Value(0) & -Ast::Value(0)),
         Err(proof::Error::RanOutOfPaths)
     );
 }
 
-// #[inline]
-// #[cfg(feature = "quickcheck")]
-// fn eq_implies_hash<T: Eq + core::hash::Hash>(a: &T, b: &T) -> bool {
-//     use {core::hash::Hasher, std::collections::hash_map::DefaultHasher};
-//     if a != b {
-//         return true;
-//     }
-//     let mut h = DefaultHasher::new();
-//     a.hash(&mut h);
-//     let hash_a = h.finish();
-//     h = DefaultHasher::new();
-//     b.hash(&mut h);
-//     let hash_b = h.finish();
-//     hash_a == hash_b
-// }
-
 #[cfg(feature = "quickcheck")]
 quickcheck::quickcheck! {
-    // fn trace_eq_implies_equal_hashes(a: turnstile::Trace, b: turnstile::Trace) -> bool {
+    // fn trace_eq_implies_equal_hashes(a: Trace, b: Trace) -> bool {
     //     eq_implies_hash(&a, &b)
     // }
 
-    // fn split_eq_implies_equal_hashes(a: turnstile::Split, b: turnstile::Split) -> bool {
+    // fn split_eq_implies_equal_hashes(a: Split, b: Split) -> bool {
     //     eq_implies_hash(&a, &b)
     // }
 }
@@ -237,8 +230,8 @@ mod reduced {
     // #[allow(unsafe_code)]
     // fn split_swap_still_equal_hashes_1() {
     //     use crate::{
-    //         turnstile::{Split, Trace},
-    //         Ast, Multiset, Turnstile,
+    //         {Split, Trace},
+    //         Ast, Multiset, trace,
     //     };
     //     use core::{
     //         hash::{Hash, Hasher},
@@ -256,13 +249,13 @@ mod reduced {
     //     });
     //     let split = Split {
     //         lhs: Trace {
-    //             current: Turnstile {
+    //             current: trace {
     //                 rhs: Multiset(BTreeMap::new()),
     //             },
     //             history: None,
     //         },
     //         rhs: Trace {
-    //             current: Turnstile { rhs: Multiset(btm) },
+    //             current: trace { rhs: Multiset(btm) },
     //             history: None,
     //         },
     //     };
@@ -281,3 +274,19 @@ mod reduced {
     //     assert_eq!(hash_a, hash_b);
     // }
 }
+
+// #[inline]
+// #[cfg(feature = "quickcheck")]
+// fn eq_implies_hash<T: Eq + core::hash::Hash>(a: &T, b: &T) -> bool {
+//     use {core::hash::Hasher, std::collections::hash_map::DefaultHasher};
+//     if a != b {
+//         return true;
+//     }
+//     let mut h = DefaultHasher::new();
+//     a.hash(&mut h);
+//     let hash_a = h.finish();
+//     h = DefaultHasher::new();
+//     b.hash(&mut h);
+//     let hash_b = h.finish();
+//     hash_a == hash_b
+// }

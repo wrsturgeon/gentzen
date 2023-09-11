@@ -80,6 +80,7 @@
     clippy::semicolon_outside_block,
     clippy::separated_literal_suffix,
     clippy::similar_names,
+    clippy::single_call_fn,
     clippy::single_char_lifetime_names,
     clippy::std_instead_of_alloc,
     clippy::string_add,
@@ -87,14 +88,35 @@
     clippy::wildcard_imports
 )]
 
+/// Print only if debugging.
+#[cfg(debug_assertions)]
+macro_rules! dbg_println {
+    ($($arg:tt)*) => {
+        println!($($arg)*)
+    };
+}
+
+/// Print only if debugging.
+#[cfg(not(debug_assertions))]
+macro_rules! dbg_println {
+    ($($arg:tt)*) => {};
+}
+
 mod ast;
+mod infer;
+mod inference;
 mod multiset;
-pub mod proof;
-pub mod sequent;
+mod proof;
+mod sequent;
+pub mod sequents;
+mod thunk;
 
 pub use {
     ast::{bang, quest, Ast},
+    infer::Infer,
+    inference::Inference,
     multiset::Multiset,
+    proof::{prove, Error},
     sequent::Sequent,
 };
 

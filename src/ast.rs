@@ -6,6 +6,10 @@
 
 //! Abstract syntax tree for linear logic with sequent-calculus proof search built in.
 
+use std::{collections::BTreeSet, rc::Rc};
+
+use crate::{sequents::RhsOnlyWithExchange, Infer, Inference, Multiset, Sequent};
+
 /// Abstract syntax tree for linear logic with sequent-calculus proof search built in.
 #[non_exhaustive]
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -45,15 +49,13 @@ impl core::fmt::Display for Ast {
             &Self::Top => write!(f, "\u{22a4}"),
             &Self::Zero => write!(f, "0"),
             &Self::Value(i) => write!(f, "P{i}"),
-            &Self::Bang(ref arg) => write!(f, "!({arg})"),
-            &Self::Quest(ref arg) => write!(f, "?({arg})"),
-            &Self::Dual(ref arg) => write!(f, "~({arg})"),
-            &Self::Times(ref lhs, ref rhs) => write!(f, "({lhs}) \u{2297} ({rhs})"),
-            &Self::Par(ref lhs, ref rhs) => {
-                write!(f, "({lhs}) \u{214b} ({rhs})")
-            }
-            &Self::With(ref lhs, ref rhs) => write!(f, "({lhs}) & ({rhs})"),
-            &Self::Plus(ref lhs, ref rhs) => write!(f, "({lhs}) \u{2295} ({rhs})"),
+            &Self::Bang(ref arg) => write!(f, "!{arg}"),
+            &Self::Quest(ref arg) => write!(f, "?{arg}"),
+            &Self::Dual(ref arg) => write!(f, "~{arg}"),
+            &Self::Times(ref lhs, ref rhs) => write!(f, "({lhs} \u{2297} {rhs})"),
+            &Self::Par(ref lhs, ref rhs) => write!(f, "({lhs} \u{214b} {rhs})"),
+            &Self::With(ref lhs, ref rhs) => write!(f, "({lhs} & {rhs})"),
+            &Self::Plus(ref lhs, ref rhs) => write!(f, "({lhs} \u{2295} {rhs})"),
         }
     }
 }
@@ -135,6 +137,113 @@ impl core::ops::Neg for Ast {
         //     Self::Plus(lhs, rhs) => Self::With(Box::new(-*lhs), Box::new(-*rhs)),
         // }
         Self::Dual(Box::new(self))
+    }
+}
+
+// FIXME: does not seem right that you have to write `vec![below.qed()]`, since QED is all that matters
+impl Infer<RhsOnlyWithExchange> for Ast {
+    #[inline]
+    fn above(
+        &self,
+        context: RhsOnlyWithExchange,
+        below: &Rc<RhsOnlyWithExchange>,
+    ) -> BTreeSet<Inference<RhsOnlyWithExchange>> {
+        if context.rhs.contains(&Ast::Top)
+            || context.rhs == core::iter::once(Self::Dual(Box::new(self.clone()))).collect()
+        {
+            return BTreeSet::from_iter([below.require([])]);
+        }
+        match self {
+            &Self::Top => BTreeSet::from_iter([below.require([])]),
+            &Self::One if context.is_empty() => BTreeSet::from_iter([below.require([])]),
+            &Self::Bang(ref arg) if matches!(context.only(), Some(&Self::Quest(_))) => {
+                BTreeSet::from_iter([below.require([context.with([arg.as_ref().clone()])])])
+            }
+            &(Self::One | Self::Zero | Self::Value(_) | Self::Bang(_)) => BTreeSet::new(),
+            &Self::Bottom => BTreeSet::from_iter([below.require([context])]),
+            &Self::Quest(ref arg) => BTreeSet::from_iter([
+                below.require([context.clone()]),
+                below.require([context.with([arg.as_ref().clone()])]),
+                below.require([context.with([Self::Quest(arg.clone()), Self::Quest(arg.clone())])]),
+            ]),
+            &Self::Dual(ref dual) => {
+                BTreeSet::from_iter([below.require([context.with([match dual.as_ref() {
+                    &Self::One => Self::Bottom,
+                    &Self::Bottom => Self::One,
+                    &Self::Top => Self::Zero,
+                    &Self::Zero => Self::Top,
+                    &Self::Value(_) => return BTreeSet::new(),
+                    &Self::Bang(ref arg) => Self::Quest(Box::new(Self::Dual(arg.clone()))),
+                    &Self::Quest(ref arg) => Self::Bang(Box::new(Self::Dual(arg.clone()))),
+                    &Self::Dual(ref arg) => arg.as_ref().clone(),
+                    &Self::Times(ref lhs, ref rhs) => Self::Par(
+                        Box::new(Self::Dual(lhs.clone())),
+                        Box::new(Self::Dual(rhs.clone())),
+                    ),
+                    &Self::Par(ref lhs, ref rhs) => Self::Times(
+                        Box::new(Self::Dual(lhs.clone())),
+                        Box::new(Self::Dual(rhs.clone())),
+                    ),
+                    &Self::With(ref lhs, ref rhs) => Self::Plus(
+                        Box::new(Self::Dual(lhs.clone())),
+                        Box::new(Self::Dual(rhs.clone())),
+                    ),
+                    &Self::Plus(ref lhs, ref rhs) => Self::With(
+                        Box::new(Self::Dual(lhs.clone())),
+                        Box::new(Self::Dual(rhs.clone())),
+                    ),
+                }])])])
+            }
+            &Self::Times(ref blhs, ref brhs) => {
+                let lhs = blhs.as_ref();
+                let rhs = brhs.as_ref();
+                let power_of_2 = 1_usize
+                    .checked_shl(context.len().try_into().expect("Ridiculously huge value"))
+                    .expect("More elements in a sequent than bits in a `usize`");
+                (0..power_of_2)
+                    .flat_map(|bits| {
+                        let (mut lctx, mut rctx) = (Multiset::new(), Multiset::new());
+                        for (i, ast) in context.rhs.iter().enumerate() {
+                            let _ = if bits & (1 << i) == 0 {
+                                &mut lctx
+                            } else {
+                                &mut rctx
+                            }
+                            .insert(ast.clone());
+                        }
+                        [
+                            below.require([
+                                RhsOnlyWithExchange {
+                                    rhs: lctx.with([lhs.clone()]),
+                                },
+                                RhsOnlyWithExchange {
+                                    rhs: rctx.with([rhs.clone()]),
+                                },
+                            ]),
+                            below.require([
+                                RhsOnlyWithExchange {
+                                    rhs: rctx.with([lhs.clone()]),
+                                },
+                                RhsOnlyWithExchange {
+                                    rhs: lctx.with([rhs.clone()]),
+                                },
+                            ]),
+                        ]
+                    })
+                    .collect()
+            }
+            &Self::Par(ref lhs, ref rhs) => BTreeSet::from_iter([
+                below.require([context.with([lhs.as_ref().clone(), rhs.as_ref().clone()])])
+            ]),
+            &Self::With(ref lhs, ref rhs) => BTreeSet::from_iter([below.require([
+                context.with([lhs.as_ref().clone()]),
+                context.with([rhs.as_ref().clone()]),
+            ])]),
+            &Self::Plus(ref lhs, ref rhs) => BTreeSet::from_iter([
+                below.require([context.with([lhs.as_ref().clone()])]),
+                below.require([context.with([rhs.as_ref().clone()])]),
+            ]),
+        }
     }
 }
 
