@@ -6,24 +6,28 @@
 
 //! Cache any finished results automatically.
 
-use crate::Sequent;
+use crate::{Rule, Sequent};
 use core::cmp::Reverse;
 use std::collections::{hash_map::Entry, BinaryHeap, HashMap};
 
+/// This specific sequent (not the whole proof) has already been proven.
+pub(crate) struct AlreadyProven;
+/// The entire proof is finished.
+pub(crate) struct Qed<S: Sequent> {
+    /// Sequents immediately above the original expression.
+    pub(crate) proof: Rule<S>,
+}
+
 /// Cache any finished results automatically.
+#[derive(Clone, Debug, Default)]
 pub(crate) struct Thunk<S: Sequent> {
     /// Record of what we've seen and, within that set, what we've proven.
-    cache: HashMap<S, bool>,
+    cache: HashMap<S, Option<Rule<S>>>,
     /// Smallest-first queue of unproven sequents.
     queue: BinaryHeap<Reverse<S>>,
     /// The sequent we're trying to prove overall.
     original: S,
 }
-
-/// This specific sequent (not the whole proof) has already been proven.
-pub(crate) struct AlreadyProven;
-/// The entire proof is finished.
-pub(crate) struct Qed;
 
 impl<S: Sequent> Thunk<S> {
     /// Create a new queue with only this original expression.
@@ -46,13 +50,20 @@ impl<S: Sequent> Thunk<S> {
     /// Add a sequent to be proven, or if it's already been proven, return `Err(AlreadyProven)`.
     #[inline]
     pub(crate) fn push(&mut self, sequent: S) -> Result<(), AlreadyProven> {
-        if *self.cache.entry(sequent.clone()).or_insert(false) {
-            dbg_println!("    Already proved {sequent}");
-            Err(AlreadyProven)
-        } else {
-            dbg_println!("    Adding {sequent}");
-            self.queue.push(Reverse(sequent));
-            Ok(())
+        match self.cache.entry(sequent.clone()) {
+            Entry::Vacant(empty) => {
+                let _ = empty.insert(None);
+                dbg_println!("    Adding {sequent}");
+                self.queue.push(Reverse(sequent));
+                Ok(())
+            }
+            Entry::Occupied(full) => match *full.get() {
+                None => Ok(()),
+                Some(_) => {
+                    // dbg_println!("    Already proved {sequent}");
+                    Err(AlreadyProven)
+                }
+            },
         }
     }
 
@@ -69,9 +80,9 @@ impl<S: Sequent> Thunk<S> {
             unused_variables
         )
     )]
-    pub(crate) fn cache(&mut self, sequent: S) -> Result<(), Qed> {
+    pub(crate) fn cache(&mut self, sequent: S, proof: Rule<S>) -> Result<(), Qed<S>> {
         if sequent == self.original {
-            Err(Qed)
+            Err(Qed { proof })
         } else {
             match self.cache.entry(
                 #[cfg(any(test, debug_assertions))]
@@ -85,20 +96,20 @@ impl<S: Sequent> Thunk<S> {
                         "Tried to mark {sequent} proven, \
                         but we had never seen it before",
                     );
-                    let _ = empty.insert(true);
+                    let _ = empty.insert(Some(proof));
                 }
                 Entry::Occupied(mut filled) => {
                     #[cfg(any(test, debug_assertions))]
                     {
-                        let old = filled.insert(true);
+                        let old = filled.insert(Some(proof));
                         assert!(
-                            !old,
+                            old.is_none(),
                             "Tried to mark {sequent} proven, \
-                        but we had already cached it as proven"
+                            but we had already cached it as proven"
                         );
                     }
                     #[cfg(not(any(test, debug_assertions)))]
-                    let _ = filled.insert(true);
+                    drop(filled.insert(Some(proof)));
                 }
             }
             dbg_println!("    Proved {sequent}");
@@ -108,13 +119,30 @@ impl<S: Sequent> Thunk<S> {
 
     /// Check if we have a cached proof of this sequent.
     #[inline]
-    pub(crate) fn proven(&self, sequent: &S) -> bool {
+    pub(crate) fn proven(&self, sequent: &S) -> &Option<Rule<S>> {
         let opt = self.cache.get(sequent);
         #[allow(unsafe_code)]
         // SAFETY:
         // Internal use only.
         // Called in one place that pulls from the queue of seen sequents anyway.
-        *unsafe { opt.unwrap_unchecked() }
+        unsafe {
+            opt.unwrap_unchecked()
+        }
+    }
+
+    /// Remove a cached proof of this sequent if we have one.
+    #[inline]
+    pub(crate) fn yank(&mut self, sequent: &S) -> Option<Rule<S>> {
+        let opt = self.cache.remove(sequent);
+        opt.map(|maybe_rule| {
+            #[allow(unsafe_code)]
+            // SAFETY:
+            // Always proven, just maybe yanked twice
+            // (so may be `None` but not `Some(None)`).
+            unsafe {
+                maybe_rule.unwrap_unchecked()
+            }
+        })
     }
 }
 

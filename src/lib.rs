@@ -105,16 +105,19 @@ mod infer;
 mod inference;
 mod multiset;
 mod proof;
+mod rule;
 mod sequent;
 pub mod sequents;
 mod thunk;
+mod tree;
 
 pub use {
     infer::Infer,
-    inference::Inference,
     multiset::Multiset,
     proof::{prove, Error},
+    rule::Rule,
     sequent::Sequent,
+    tree::Tree,
 };
 
 #[cfg(test)]

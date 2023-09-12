@@ -6,14 +6,13 @@
 
 //! A set of sequent-calculus inference rules using the specified sequent structure.
 
-use crate::{Inference, Sequent};
-use std::{collections::BTreeSet, rc::Rc};
+use crate::{Rule, Sequent};
 
 /// A set of sequent-calculus inference rules using the specified sequent structure.
-pub trait Infer<S: Sequent<Item = Self>> {
+pub trait Infer<S: Sequent<Item = Self>>: Clone {
     /// All possible "next moves" in a sequent-calculus proof search.
     /// Note that each item in the resultant `HashSet` is a _separate_ inference line:
     /// if you want to place multiple sequents above a single inference line,
     /// use `below.require_all([first, second, ...])`.
-    fn above(&self, context: S, below: &Rc<S>) -> BTreeSet<Inference<S>>;
+    fn above(&self, context: S) -> Vec<Rule<S>>;
 }

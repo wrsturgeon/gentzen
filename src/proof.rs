@@ -201,8 +201,9 @@
 // !D |- !B, ?G
 
 use crate::{
+    inference::Inference,
     thunk::{Qed, Thunk},
-    Infer, Sequent,
+    Infer, Rule, Sequent, Tree,
 };
 use core::hash::Hash;
 use std::{collections::HashSet, rc::Rc};
@@ -219,8 +220,8 @@ pub enum Error {
 /// # Errors
 /// If we can't.
 #[inline]
-pub fn prove<I: Infer<S>, S: Sequent<Item = I>>(expr: I) -> Result<(), Error> {
-    let mut queue: Thunk<S> = Thunk::new(expr);
+pub fn prove<I: Infer<S>, S: Sequent<Item = I>>(expr: I) -> Result<Tree<S>, Error> {
+    let mut queue: Thunk<S> = Thunk::new(expr.clone());
     let mut paused = HashSet::new();
     while let Some(sequent) = queue.next() {
         dbg_println!("Trying {sequent}");
@@ -228,10 +229,14 @@ pub fn prove<I: Infer<S>, S: Sequent<Item = I>>(expr: I) -> Result<(), Error> {
         for inference in rc
             .sample()
             .into_iter()
-            .flat_map(move |(item, context)| item.above(context, &rc))
+            .flat_map(move |(item, context)| item.above(context))
+            .map(|rule| Inference {
+                rule,
+                below: Rc::clone(&rc),
+            })
         {
             // dbg_println!("    Pausing {inference}");
-            let sequents = inference.above.clone();
+            let sequents = inference.rule.above.clone();
             let _ = paused.insert(inference);
             queue.extend(sequents);
         }
@@ -240,12 +245,14 @@ pub fn prove<I: Infer<S>, S: Sequent<Item = I>>(expr: I) -> Result<(), Error> {
             for inference in &paused {
                 if !done.contains(inference) && inference.proven(&queue) {
                     dbg_println!("    Proved {inference}");
-                    match queue.cache(inference.below.as_ref().clone()) {
+                    match queue.cache(inference.below.as_ref().clone(), inference.rule.clone()) {
                         Ok(()) => {
                             let _ = done.insert(inference.clone());
                             continue 'inferences;
                         }
-                        Err(Qed) => return Ok(()),
+                        Err(Qed {
+                            proof: Rule { name, above },
+                        }) => return Ok(Tree::connect(S::from_rhs(expr), name, above, &mut queue)),
                     };
                 }
             }

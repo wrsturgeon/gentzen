@@ -6,15 +6,16 @@
 
 //! A set of sequents above an inference line plus a reference to the sequent below the inference line.
 
-use crate::{thunk::Thunk, Sequent};
+use crate::{thunk::Thunk, Rule, Sequent};
 use core::{fmt::Display, hash::Hash};
-use std::{collections::BTreeSet, rc::Rc};
+use std::rc::Rc;
 
 /// A set of sequents above an inference line plus a reference to the sequent below the inference line.
 #[derive(Clone, Debug)]
-pub struct Inference<S: Sequent> {
-    /// Everything above the inference line: effectively next steps.
-    pub(crate) above: BTreeSet<S>,
+#[allow(clippy::exhaustive_structs)]
+pub(crate) struct Inference<S: Sequent> {
+    /// Everything above the inference line plus the name of the rule that allowed the inference.
+    pub(crate) rule: Rule<S>,
     /// If `self` is proven true/false,
     /// it would immediately follow that
     /// `self.history` is proven the same.
@@ -24,7 +25,7 @@ pub struct Inference<S: Sequent> {
 impl<S: Sequent> PartialEq for Inference<S> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
-        self.above == other.above
+        self.rule == other.rule
     }
 }
 
@@ -40,7 +41,7 @@ impl<S: Sequent> PartialOrd for Inference<S> {
 impl<S: Sequent> Ord for Inference<S> {
     #[inline]
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        match self.above.cmp(&other.above) {
+        match self.rule.cmp(&other.rule) {
             diff @ (core::cmp::Ordering::Less | core::cmp::Ordering::Greater) => diff,
             core::cmp::Ordering::Equal => self.below.cmp(&other.below),
         }
@@ -50,7 +51,7 @@ impl<S: Sequent> Ord for Inference<S> {
 impl<S: Sequent> Hash for Inference<S> {
     #[inline]
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-        self.above.hash(state);
+        self.rule.hash(state);
     }
 }
 
@@ -66,7 +67,7 @@ impl<S: Sequent> Inference<S> {
     #[inline]
     #[allow(clippy::arithmetic_side_effects)]
     pub(crate) fn without_history(&self) -> String {
-        let mut iter = self.above.iter();
+        let mut iter = self.rule.above.iter();
         iter.next().map_or_else(
             || "{ }".to_owned(),
             |first| {
@@ -80,7 +81,10 @@ impl<S: Sequent> Inference<S> {
     /// Check if we have proofs already cached for each sequent above the inference line.
     #[inline]
     pub(crate) fn proven(&self, thunk: &Thunk<S>) -> bool {
-        self.above.iter().all(|sequent| thunk.proven(sequent))
+        self.rule
+            .above
+            .iter()
+            .all(|sequent| thunk.proven(sequent).is_some())
     }
 }
 
@@ -89,17 +93,17 @@ impl<S: Sequent + quickcheck::Arbitrary> quickcheck::Arbitrary for Inference<S> 
     #[inline]
     fn arbitrary(g: &mut quickcheck::Gen) -> Self {
         Self {
-            above: quickcheck::Arbitrary::arbitrary(g),
+            rule: quickcheck::Arbitrary::arbitrary(g),
             below: Rc::new(quickcheck::Arbitrary::arbitrary(g)),
         }
     }
     #[inline]
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
         Box::new(
-            (self.above.clone(), self.below.as_ref().clone())
+            (self.rule.clone(), self.below.as_ref().clone())
                 .shrink()
-                .map(|(above, below)| Self {
-                    above,
+                .map(|(rule, below)| Self {
+                    rule,
                     below: Rc::new(below),
                 }),
         )

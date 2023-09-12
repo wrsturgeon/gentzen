@@ -9,8 +9,7 @@
 #![deny(warnings)]
 #![allow(clippy::needless_borrowed_reference)]
 
-use gentzen::{sequents::RhsOnlyWithExchange, Infer, Inference, Multiset, Sequent};
-use std::{collections::BTreeSet, rc::Rc};
+use gentzen::{sequents::RhsOnlyWithExchange, Infer, Multiset, Rule};
 
 #[cfg(test)]
 use gentzen::{prove, Error};
@@ -133,59 +132,85 @@ impl core::ops::Neg for Ast {
     }
 }
 
-// FIXME: does not seem right that you have to write `vec![below.qed()]`, since QED is all that matters
 impl Infer<RhsOnlyWithExchange<Self>> for Ast {
     #[inline]
-    fn above(
-        &self,
-        context: RhsOnlyWithExchange<Self>,
-        below: &Rc<RhsOnlyWithExchange<Self>>,
-    ) -> BTreeSet<Inference<RhsOnlyWithExchange<Self>>> {
-        if context.rhs().contains(&Ast::Top)
-            || context.rhs() == &core::iter::once(Self::Dual(Box::new(self.clone()))).collect()
+    fn above(&self, context: RhsOnlyWithExchange<Self>) -> Vec<Rule<RhsOnlyWithExchange<Self>>> {
+        if context.rhs.contains(&Ast::Top)
+            || context.rhs.iter().eq([&Self::Dual(Box::new(self.clone()))])
         {
-            return BTreeSet::from_iter([below.require([])]);
+            return vec![Rule {
+                name: "axiom",
+                above: [].into_iter().collect(),
+            }];
         }
         match *self {
-            Self::Top => BTreeSet::from_iter([below.require([])]),
-            Self::One if context.is_empty() => BTreeSet::from_iter([below.require([])]),
+            Self::Top => vec![Rule {
+                name: "\u{22a4}",
+                above: [].into_iter().collect(),
+            }],
+            Self::One if context.is_empty() => vec![Rule {
+                name: "1",
+                above: [].into_iter().collect(),
+            }],
             Self::Bang(ref arg) if matches!(context.only(), Some(&Self::Quest(_))) => {
-                BTreeSet::from_iter([below.require([context.with([arg.as_ref().clone()])])])
+                vec![Rule {
+                    name: "!",
+                    above: [context.with([arg.as_ref().clone()])].into_iter().collect(),
+                }]
             }
-            Self::One | Self::Zero | Self::Value(_) | Self::Bang(_) => BTreeSet::new(),
-            Self::Bottom => BTreeSet::from_iter([below.require([context])]),
-            Self::Quest(ref arg) => BTreeSet::from_iter([
-                below.require([context.clone()]),
-                below.require([context.with([arg.as_ref().clone()])]),
-                below.require([context.with([Self::Quest(arg.clone()), Self::Quest(arg.clone())])]),
-            ]),
+            Self::One | Self::Zero | Self::Value(_) | Self::Bang(_) => vec![],
+            Self::Bottom => vec![Rule {
+                name: "",
+                above: [context].into_iter().collect(),
+            }],
+            Self::Quest(ref arg) => vec![
+                Rule {
+                    name: "",
+                    above: [context.clone()].into_iter().collect(),
+                },
+                Rule {
+                    name: "",
+                    above: [context.with([arg.as_ref().clone()])].into_iter().collect(),
+                },
+                Rule {
+                    name: "",
+                    above: [context.with([Self::Quest(arg.clone()), Self::Quest(arg.clone())])]
+                        .into_iter()
+                        .collect(),
+                },
+            ],
             Self::Dual(ref dual) => {
-                BTreeSet::from_iter([below.require([context.with([match *dual.as_ref() {
-                    Self::One => Self::Bottom,
-                    Self::Bottom => Self::One,
-                    Self::Top => Self::Zero,
-                    Self::Zero => Self::Top,
-                    Self::Value(_) => return BTreeSet::new(),
-                    Self::Bang(ref arg) => Self::Quest(Box::new(Self::Dual(arg.clone()))),
-                    Self::Quest(ref arg) => Self::Bang(Box::new(Self::Dual(arg.clone()))),
-                    Self::Dual(ref arg) => arg.as_ref().clone(),
-                    Self::Times(ref lhs, ref rhs) => Self::Par(
-                        Box::new(Self::Dual(lhs.clone())),
-                        Box::new(Self::Dual(rhs.clone())),
-                    ),
-                    Self::Par(ref lhs, ref rhs) => Self::Times(
-                        Box::new(Self::Dual(lhs.clone())),
-                        Box::new(Self::Dual(rhs.clone())),
-                    ),
-                    Self::With(ref lhs, ref rhs) => Self::Plus(
-                        Box::new(Self::Dual(lhs.clone())),
-                        Box::new(Self::Dual(rhs.clone())),
-                    ),
-                    Self::Plus(ref lhs, ref rhs) => Self::With(
-                        Box::new(Self::Dual(lhs.clone())),
-                        Box::new(Self::Dual(rhs.clone())),
-                    ),
-                }])])])
+                vec![Rule {
+                    name: "DeMorgan",
+                    above: [context.with([match **dual {
+                        Self::One => Self::Bottom,
+                        Self::Bottom => Self::One,
+                        Self::Top => Self::Zero,
+                        Self::Zero => Self::Top,
+                        Self::Value(_) => return vec![],
+                        Self::Bang(ref arg) => Self::Quest(Box::new(Self::Dual(arg.clone()))),
+                        Self::Quest(ref arg) => Self::Bang(Box::new(Self::Dual(arg.clone()))),
+                        Self::Dual(ref arg) => arg.as_ref().clone(),
+                        Self::Times(ref lhs, ref rhs) => Self::Par(
+                            Box::new(Self::Dual(lhs.clone())),
+                            Box::new(Self::Dual(rhs.clone())),
+                        ),
+                        Self::Par(ref lhs, ref rhs) => Self::Times(
+                            Box::new(Self::Dual(lhs.clone())),
+                            Box::new(Self::Dual(rhs.clone())),
+                        ),
+                        Self::With(ref lhs, ref rhs) => Self::Plus(
+                            Box::new(Self::Dual(lhs.clone())),
+                            Box::new(Self::Dual(rhs.clone())),
+                        ),
+                        Self::Plus(ref lhs, ref rhs) => Self::With(
+                            Box::new(Self::Dual(lhs.clone())),
+                            Box::new(Self::Dual(rhs.clone())),
+                        ),
+                    }])]
+                    .into_iter()
+                    .collect(),
+                }]
             }
             Self::Times(ref blhs, ref brhs) => {
                 let lhs = blhs.as_ref();
@@ -196,7 +221,7 @@ impl Infer<RhsOnlyWithExchange<Self>> for Ast {
                 (0..power_of_2)
                     .flat_map(|bits| {
                         let (mut lctx, mut rctx) = (Multiset::new(), Multiset::new());
-                        for (i, ast) in context.rhs().iter().enumerate() {
+                        for (i, ast) in context.rhs.iter().enumerate() {
                             let _ = if bits & (1 << i) == 0 {
                                 &mut lctx
                             } else {
@@ -205,29 +230,55 @@ impl Infer<RhsOnlyWithExchange<Self>> for Ast {
                             .insert(ast.clone());
                         }
                         [
-                            below.require([
-                                RhsOnlyWithExchange::new(lctx.with([lhs.clone()])),
-                                RhsOnlyWithExchange::new(rctx.with([rhs.clone()])),
-                            ]),
-                            below.require([
-                                RhsOnlyWithExchange::new(rctx.with([lhs.clone()])),
-                                RhsOnlyWithExchange::new(lctx.with([rhs.clone()])),
-                            ]),
+                            Rule {
+                                name: "\u{2297}",
+                                above: [
+                                    RhsOnlyWithExchange::new(lctx.with([lhs.clone()])),
+                                    RhsOnlyWithExchange::new(rctx.with([rhs.clone()])),
+                                ]
+                                .into_iter()
+                                .collect(),
+                            },
+                            Rule {
+                                name: "\u{2297}",
+                                above: [
+                                    RhsOnlyWithExchange::new(rctx.with([lhs.clone()])),
+                                    RhsOnlyWithExchange::new(lctx.with([rhs.clone()])),
+                                ]
+                                .into_iter()
+                                .collect(),
+                            },
                         ]
                     })
                     .collect()
             }
-            Self::Par(ref lhs, ref rhs) => BTreeSet::from_iter([
-                below.require([context.with([lhs.as_ref().clone(), rhs.as_ref().clone()])])
-            ]),
-            Self::With(ref lhs, ref rhs) => BTreeSet::from_iter([below.require([
-                context.with([lhs.as_ref().clone()]),
-                context.with([rhs.as_ref().clone()]),
-            ])]),
-            Self::Plus(ref lhs, ref rhs) => BTreeSet::from_iter([
-                below.require([context.with([lhs.as_ref().clone()])]),
-                below.require([context.with([rhs.as_ref().clone()])]),
-            ]),
+            Self::Par(ref lhs, ref rhs) => {
+                vec![Rule {
+                    name: "\u{214b}",
+                    above: [context.with([lhs.as_ref().clone(), rhs.as_ref().clone()])]
+                        .into_iter()
+                        .collect(),
+                }]
+            }
+            Self::With(ref lhs, ref rhs) => vec![Rule {
+                name: "&",
+                above: [
+                    context.with([lhs.as_ref().clone()]),
+                    context.with([rhs.as_ref().clone()]),
+                ]
+                .into_iter()
+                .collect(),
+            }],
+            Self::Plus(ref lhs, ref rhs) => vec![
+                Rule {
+                    name: "+L",
+                    above: [context.with([lhs.as_ref().clone()])].into_iter().collect(),
+                },
+                Rule {
+                    name: "+R",
+                    above: [context.with([rhs.as_ref().clone()])].into_iter().collect(),
+                },
+            ],
         }
     }
 }
@@ -349,156 +400,162 @@ impl quickcheck::Arbitrary for Ast {
 
 #[test]
 fn cant_prove_0() {
-    assert_eq!(prove(Ast::Zero), Err(Error::RanOutOfPaths));
+    let original = Ast::Zero;
+    prove(original).unwrap_err();
 }
 
 #[test]
 fn prove_1() {
-    assert_eq!(prove(Ast::One), Ok(()));
+    let original = Ast::One;
+    prove(original).unwrap();
 }
 
 #[test]
 fn prove_top() {
-    assert_eq!(prove(Ast::Top), Ok(()));
+    let original = Ast::Top;
+    prove(original).unwrap();
 }
 
 #[test]
 fn prove_zero_par_top() {
-    assert_eq!(prove(Ast::Zero.par(Ast::Top)), Ok(()));
+    let original = Ast::Zero.par(Ast::Top);
+    prove(original).unwrap();
 }
 
 #[test]
 fn prove_0_implies_0() {
-    assert_eq!(prove(Ast::Zero - Ast::Zero), Ok(()));
+    let original = Ast::Zero - Ast::Zero;
+    prove(original).unwrap();
 }
 
 #[test]
 fn prove_0_plus_1() {
-    assert_eq!(prove(Ast::Zero + Ast::One), Ok(()));
+    let original = Ast::Zero + Ast::One;
+    prove(original).unwrap();
 }
 
 #[test]
 fn prove_1_plus_0() {
-    assert_eq!(prove(Ast::One + Ast::Zero), Ok(()));
+    let original = Ast::One + Ast::Zero;
+    prove(original).unwrap();
 }
 
 #[test]
 fn prove_1_with_1() {
-    assert_eq!(prove(Ast::One & Ast::One), Ok(()));
+    let original = Ast::One & Ast::One;
+    prove(original).unwrap();
 }
 
 #[test]
 fn prove_1_with_1_with_1() {
-    assert_eq!(prove(Ast::One & Ast::One & Ast::One), Ok(()));
+    let original = Ast::One & Ast::One & Ast::One;
+    prove(original).unwrap();
 }
 
 #[test]
 fn prove_1_with_1_with_1_with_1() {
-    assert_eq!(prove(Ast::One & Ast::One & Ast::One & Ast::One), Ok(()));
+    let original = Ast::One & Ast::One & Ast::One & Ast::One;
+    prove(original).unwrap();
 }
 
 #[test]
 fn prove_1_with_1_with_1_with_1_with_1() {
-    assert_eq!(
-        prove(Ast::One & Ast::One & Ast::One & Ast::One & Ast::One),
-        Ok(())
-    );
+    let original = Ast::One & Ast::One & Ast::One & Ast::One & Ast::One;
+    prove(original).unwrap();
 }
 
 #[test]
 fn cant_prove_0_with_1() {
-    assert_eq!(prove(Ast::Zero & Ast::One), Err(Error::RanOutOfPaths),);
+    let original = Ast::Zero & Ast::One;
+    prove(original).unwrap_err();
 }
 
 #[test]
 fn cant_prove_1_with_0() {
-    assert_eq!(prove(Ast::One & Ast::Zero), Err(Error::RanOutOfPaths),);
+    let original = Ast::One & Ast::Zero;
+    prove(original).unwrap_err();
 }
 
 #[test]
 fn a_with_b_implies_a() {
-    assert_eq!(
-        prove((Ast::Value(0) & Ast::Value(1)) - Ast::Value(0)),
-        Ok(()),
-    );
+    let original = (Ast::Value(0) & Ast::Value(1)) - Ast::Value(0);
+    prove(original).unwrap();
 }
 
 #[test]
 fn a_with_b_implies_b() {
-    assert_eq!(
-        prove((Ast::Value(0) & Ast::Value(1)) - Ast::Value(1)),
-        Ok(()),
-    );
+    let original = (Ast::Value(0) & Ast::Value(1)) - Ast::Value(1);
+    prove(original).unwrap();
 }
 
 #[test]
 fn bottom_implies_bottom() {
-    assert_eq!(prove(Ast::Bottom - Ast::Bottom), Ok(()));
+    let original = Ast::Bottom - Ast::Bottom;
+    prove(original).unwrap();
 }
 
 #[test]
 fn prove_1_times_1() {
-    assert_eq!(prove(Ast::One * Ast::One), Ok(()));
+    let original = Ast::One * Ast::One;
+    prove(original).unwrap();
 }
 
 #[test]
 fn cant_prove_1_times_0() {
-    assert_eq!(prove(Ast::One * Ast::Zero), Err(Error::RanOutOfPaths));
+    let original = Ast::One * Ast::Zero;
+    prove(original).unwrap_err();
 }
 
 #[test]
 fn cant_prove_0_times_1() {
-    assert_eq!(prove(Ast::Zero * Ast::One), Err(Error::RanOutOfPaths));
+    let original = Ast::Zero * Ast::One;
+    prove(original).unwrap_err();
 }
 
 #[test]
 fn cant_prove_0_times_0() {
-    assert_eq!(prove(Ast::Zero * Ast::Zero), Err(Error::RanOutOfPaths));
+    let original = Ast::Zero * Ast::Zero;
+    prove(original).unwrap_err();
 }
 
 #[test]
 fn prove_1_times_1_times_1() {
-    assert_eq!(prove(Ast::One * Ast::One * Ast::One), Ok(()));
+    let original = Ast::One * Ast::One * Ast::One;
+    prove(original).unwrap();
 }
 
 #[test]
 fn prove_1_times_1_times_1_times_1() {
-    assert_eq!(prove(Ast::One * Ast::One * Ast::One * Ast::One), Ok(()));
+    let original = Ast::One * Ast::One * Ast::One * Ast::One;
+    prove(original).unwrap();
 }
 
 #[test]
 fn prove_1_times_1_times_1_times_1_times_1() {
-    assert_eq!(
-        prove(Ast::One * Ast::One * Ast::One * Ast::One * Ast::One),
-        Ok(())
-    );
+    let original = Ast::One * Ast::One * Ast::One * Ast::One * Ast::One;
+    prove(original).unwrap();
 }
 
 #[test]
 fn prove_1_implies_1_implies_1_implies_1_implies_1_times_1() {
-    assert_eq!(
-        prove(Ast::One - (Ast::One - (Ast::One - (Ast::One - (Ast::One * Ast::One))))),
-        Ok(())
-    );
+    let original = Ast::One - (Ast::One - (Ast::One - (Ast::One - (Ast::One * Ast::One))));
+    prove(original).unwrap();
 }
 
 #[test]
 fn prove_excluded_middle_par() {
-    assert_eq!(prove(Ast::Value(0).par(-Ast::Value(0))), Ok(()));
+    let original = Ast::Value(0).par(-Ast::Value(0));
+    prove(original).unwrap();
 }
 
 #[test]
 fn cant_prove_excluded_middle_plus() {
-    assert_eq!(
-        prove(Ast::Value(0) + -Ast::Value(0)),
-        Err(Error::RanOutOfPaths)
-    );
+    let original = Ast::Value(0) + -Ast::Value(0);
+    assert_eq!(prove(original.clone()), Err(Error::RanOutOfPaths));
 }
 
 #[test]
 fn cant_prove_excluded_middle_with() {
-    assert_eq!(
-        prove(Ast::Value(0) & -Ast::Value(0)),
-        Err(Error::RanOutOfPaths)
-    );
+    let original = Ast::Value(0) & -Ast::Value(0);
+    assert_eq!(prove(original.clone()), Err(Error::RanOutOfPaths));
 }
