@@ -7,7 +7,7 @@
 //! Unordered collection of (potentially many of the same) elements.
 
 use core::num::NonZeroUsize;
-use std::collections::BTreeMap;
+use std::collections::{btree_map::IntoIter, BTreeMap};
 
 /// Unordered collection of (potentially many of the same) elements.
 #[repr(transparent)]
@@ -121,14 +121,14 @@ impl<T: Ord> Multiset<T> {
     #[must_use]
     #[inline(always)]
     pub fn any_element(&self) -> Option<&T> {
-        self.iter().next()
+        self.iter_repeat().next()
     }
 
     /// If this collection has exactly one element, view it without taking it out.
     #[must_use]
     #[inline(always)]
     pub fn only(&self) -> Option<&T> {
-        let mut iter = self.iter();
+        let mut iter = self.iter_repeat();
         let maybe = iter.next();
         if iter.next().is_none() {
             maybe
@@ -141,7 +141,7 @@ impl<T: Ord> Multiset<T> {
     #[must_use]
     #[inline(always)]
     pub fn pair(&self) -> Option<(&T, &T)> {
-        let mut iter = self.iter();
+        let mut iter = self.iter_repeat();
         iter.next().and_then(|first| {
             iter.next()
                 .and_then(|second| iter.next().is_none().then_some((first, second)))
@@ -162,7 +162,7 @@ impl<T: Ord> Multiset<T> {
 
     /// Iterate over elements without copying them, visiting duplicate elements more than once.
     #[inline]
-    pub fn iter(&self) -> impl Iterator<Item = &T> {
+    pub fn iter_repeat(&self) -> impl Iterator<Item = &T> {
         self.0
             .iter()
             .flat_map(|(t, i)| core::iter::repeat(t).take(i.get()))
@@ -187,6 +187,30 @@ impl<T: Clone + Ord> Multiset<T> {
         }
         ms
     }
+
+    /// Iterate over elements, visiting duplicate elements more than once.
+    #[inline]
+    pub fn into_iter_repeat(self) -> IntoIterRepeat<T> {
+        self.0
+            .into_iter()
+            .flat_map(|(t, i)| core::iter::repeat(t).take(i.get()))
+    }
+}
+
+/// Output of `Multiset::into_iter_repeat`.
+type IntoIterRepeat<T> = core::iter::FlatMap<
+    IntoIter<T, NonZeroUsize>,
+    core::iter::Take<core::iter::Repeat<T>>,
+    fn((T, NonZeroUsize)) -> core::iter::Take<core::iter::Repeat<T>>,
+>;
+
+impl<T: Clone + Ord> IntoIterator for Multiset<T> {
+    type Item = T;
+    type IntoIter = IntoIterRepeat<T>;
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        self.into_iter_repeat()
+    }
 }
 
 #[cfg(feature = "quickcheck")]
@@ -198,7 +222,7 @@ impl<T: quickcheck::Arbitrary + Ord> quickcheck::Arbitrary for Multiset<T> {
     #[inline]
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
         Box::new(
-            self.iter()
+            self.iter_repeat()
                 .cloned()
                 .collect::<Vec<_>>()
                 .shrink()

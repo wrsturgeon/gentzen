@@ -86,7 +86,7 @@ impl<Item: Debug + Display + Hash + Infer<Self> + Ord> Display for IntuitionistW
     #[inline]
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "\u{22a2}")?;
-        let mut iter = self.lhs.iter();
+        let mut iter = self.lhs.iter_repeat();
         if let Some(first) = iter.next() {
             write!(f, "{first}")?;
             for next in iter {

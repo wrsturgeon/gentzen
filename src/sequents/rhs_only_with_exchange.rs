@@ -104,7 +104,7 @@ impl<Item: Debug + Display + Hash + Infer<Self> + Ord> Display for RhsOnlyWithEx
     #[inline]
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "\u{22a2}")?;
-        let mut iter = self.rhs.iter();
+        let mut iter = self.rhs.iter_repeat();
         if let Some(first) = iter.next() {
             write!(f, " {first}")?;
             for next in iter {

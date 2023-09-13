@@ -9,12 +9,17 @@
 #![deny(warnings)]
 #![allow(clippy::needless_borrowed_reference)]
 
-use gentzen::{sequents::RhsOnlyWithExchange, Infer, Multiset, Rule};
+use gentzen::{prove, sequents::RhsOnlyWithExchange, Infer, Multiset, Rule};
 
 #[cfg(test)]
-use gentzen::{prove, Error};
+use gentzen::Error;
 
-fn main() {}
+fn main() {
+    println!(
+        "{}",
+        prove(Ast::One - (Ast::One - (Ast::One - (Ast::One - (Ast::One * Ast::One))))).unwrap()
+    );
+}
 
 /// Abstract syntax tree for linear logic with sequent-calculus proof search built in.
 #[non_exhaustive]
@@ -136,7 +141,10 @@ impl Infer<RhsOnlyWithExchange<Self>> for Ast {
     #[inline]
     fn above(&self, context: RhsOnlyWithExchange<Self>) -> Vec<Rule<RhsOnlyWithExchange<Self>>> {
         if context.rhs.contains(&Ast::Top)
-            || context.rhs.iter().eq([&Self::Dual(Box::new(self.clone()))])
+            || context
+                .rhs
+                .iter_repeat()
+                .eq([&Self::Dual(Box::new(self.clone()))])
         {
             return vec![Rule {
                 name: "axiom",
@@ -160,20 +168,20 @@ impl Infer<RhsOnlyWithExchange<Self>> for Ast {
             }
             Self::One | Self::Zero | Self::Value(_) | Self::Bang(_) => vec![],
             Self::Bottom => vec![Rule {
-                name: "",
+                name: "\u{22a5}",
                 above: [context].into_iter().collect(),
             }],
             Self::Quest(ref arg) => vec![
                 Rule {
-                    name: "",
+                    name: "?weakening",
                     above: [context.clone()].into_iter().collect(),
                 },
                 Rule {
-                    name: "",
+                    name: "?deletion",
                     above: [context.with([arg.as_ref().clone()])].into_iter().collect(),
                 },
                 Rule {
-                    name: "",
+                    name: "?contraction",
                     above: [context.with([Self::Quest(arg.clone()), Self::Quest(arg.clone())])]
                         .into_iter()
                         .collect(),
@@ -181,7 +189,7 @@ impl Infer<RhsOnlyWithExchange<Self>> for Ast {
             ],
             Self::Dual(ref dual) => {
                 vec![Rule {
-                    name: "DeMorgan",
+                    name: "~",
                     above: [context.with([match **dual {
                         Self::One => Self::Bottom,
                         Self::Bottom => Self::One,
@@ -221,7 +229,7 @@ impl Infer<RhsOnlyWithExchange<Self>> for Ast {
                 (0..power_of_2)
                     .flat_map(|bits| {
                         let (mut lctx, mut rctx) = (Multiset::new(), Multiset::new());
-                        for (i, ast) in context.rhs.iter().enumerate() {
+                        for (i, ast) in context.rhs.iter_repeat().enumerate() {
                             let _ = if bits & (1 << i) == 0 {
                                 &mut lctx
                             } else {
@@ -401,151 +409,185 @@ impl quickcheck::Arbitrary for Ast {
 #[test]
 fn cant_prove_0() {
     let original = Ast::Zero;
-    prove(original).unwrap_err();
+    prove(original).map(|proof| proof.to_string()).unwrap_err();
 }
 
 #[test]
 fn prove_1() {
     let original = Ast::One;
-    prove(original).unwrap();
+    prove(original).map(|proof| proof.to_string()).unwrap();
 }
 
 #[test]
 fn prove_top() {
     let original = Ast::Top;
-    prove(original).unwrap();
+    prove(original).map(|proof| proof.to_string()).unwrap();
 }
 
 #[test]
 fn prove_zero_par_top() {
     let original = Ast::Zero.par(Ast::Top);
-    prove(original).unwrap();
+    prove(original).map(|proof| proof.to_string()).unwrap();
 }
 
 #[test]
 fn prove_0_implies_0() {
     let original = Ast::Zero - Ast::Zero;
-    prove(original).unwrap();
+    prove(original).map(|proof| proof.to_string()).unwrap();
 }
 
 #[test]
 fn prove_0_plus_1() {
     let original = Ast::Zero + Ast::One;
-    prove(original).unwrap();
+    prove(original).map(|proof| proof.to_string()).unwrap();
 }
 
 #[test]
 fn prove_1_plus_0() {
     let original = Ast::One + Ast::Zero;
-    prove(original).unwrap();
+    prove(original).map(|proof| proof.to_string()).unwrap();
 }
 
 #[test]
 fn prove_1_with_1() {
     let original = Ast::One & Ast::One;
-    prove(original).unwrap();
+    prove(original).map(|proof| proof.to_string()).unwrap();
 }
 
 #[test]
 fn prove_1_with_1_with_1() {
     let original = Ast::One & Ast::One & Ast::One;
-    prove(original).unwrap();
+    prove(original).map(|proof| proof.to_string()).unwrap();
 }
 
 #[test]
 fn prove_1_with_1_with_1_with_1() {
     let original = Ast::One & Ast::One & Ast::One & Ast::One;
-    prove(original).unwrap();
+    prove(original).map(|proof| proof.to_string()).unwrap();
 }
 
 #[test]
 fn prove_1_with_1_with_1_with_1_with_1() {
     let original = Ast::One & Ast::One & Ast::One & Ast::One & Ast::One;
-    prove(original).unwrap();
+    prove(original).map(|proof| proof.to_string()).unwrap();
 }
 
 #[test]
 fn cant_prove_0_with_1() {
     let original = Ast::Zero & Ast::One;
-    prove(original).unwrap_err();
+    prove(original).map(|proof| proof.to_string()).unwrap_err();
 }
 
 #[test]
 fn cant_prove_1_with_0() {
     let original = Ast::One & Ast::Zero;
-    prove(original).unwrap_err();
+    prove(original).map(|proof| proof.to_string()).unwrap_err();
 }
 
 #[test]
 fn a_with_b_implies_a() {
     let original = (Ast::Value(0) & Ast::Value(1)) - Ast::Value(0);
-    prove(original).unwrap();
+    prove(original).map(|proof| proof.to_string()).unwrap();
 }
 
 #[test]
 fn a_with_b_implies_b() {
     let original = (Ast::Value(0) & Ast::Value(1)) - Ast::Value(1);
-    prove(original).unwrap();
+    prove(original).map(|proof| proof.to_string()).unwrap();
 }
 
 #[test]
 fn bottom_implies_bottom() {
     let original = Ast::Bottom - Ast::Bottom;
-    prove(original).unwrap();
+    prove(original).map(|proof| proof.to_string()).unwrap();
 }
 
 #[test]
 fn prove_1_times_1() {
     let original = Ast::One * Ast::One;
-    prove(original).unwrap();
+    prove(original).map(|proof| proof.to_string()).unwrap();
+}
+
+#[test]
+fn format_1_times_1() {
+    let original = Ast::One * Ast::One;
+    if let Ok(proof) = prove(original) {
+        assert_eq!(
+            proof.to_string(),
+            "
+--- 1   --- (already proven)
+⊢ 1     ⊢ 1
+----------- ⊗
+⊢ (1 ⊗ 1)
+",
+        );
+    }
 }
 
 #[test]
 fn cant_prove_1_times_0() {
     let original = Ast::One * Ast::Zero;
-    prove(original).unwrap_err();
+    prove(original).map(|proof| proof.to_string()).unwrap_err();
 }
 
 #[test]
 fn cant_prove_0_times_1() {
     let original = Ast::Zero * Ast::One;
-    prove(original).unwrap_err();
+    prove(original).map(|proof| proof.to_string()).unwrap_err();
 }
 
 #[test]
 fn cant_prove_0_times_0() {
     let original = Ast::Zero * Ast::Zero;
-    prove(original).unwrap_err();
+    prove(original).map(|proof| proof.to_string()).unwrap_err();
 }
 
 #[test]
 fn prove_1_times_1_times_1() {
     let original = Ast::One * Ast::One * Ast::One;
-    prove(original).unwrap();
+    prove(original).map(|proof| proof.to_string()).unwrap();
+}
+
+#[test]
+fn format_1_times_1_times_1() {
+    let original = Ast::One * Ast::One * Ast::One;
+    if let Ok(proof) = prove(original) {
+        assert_eq!(
+            proof.to_string(),
+            "
+        --- (already proven)
+        ⊢ 1
+--- 1   --------- ⊗
+⊢ 1     ⊢ (1 ⊗ 1)
+----------------- ⊗
+⊢ ((1 ⊗ 1) ⊗ 1)
+",
+        );
+    }
 }
 
 #[test]
 fn prove_1_times_1_times_1_times_1() {
     let original = Ast::One * Ast::One * Ast::One * Ast::One;
-    prove(original).unwrap();
+    prove(original).map(|proof| proof.to_string()).unwrap();
 }
 
 #[test]
 fn prove_1_times_1_times_1_times_1_times_1() {
     let original = Ast::One * Ast::One * Ast::One * Ast::One * Ast::One;
-    prove(original).unwrap();
+    prove(original).map(|proof| proof.to_string()).unwrap();
 }
 
 #[test]
 fn prove_1_implies_1_implies_1_implies_1_implies_1_times_1() {
     let original = Ast::One - (Ast::One - (Ast::One - (Ast::One - (Ast::One * Ast::One))));
-    prove(original).unwrap();
+    prove(original).map(|proof| proof.to_string()).unwrap();
 }
 
 #[test]
 fn prove_excluded_middle_par() {
     let original = Ast::Value(0).par(-Ast::Value(0));
-    prove(original).unwrap();
+    prove(original).map(|proof| proof.to_string()).unwrap();
 }
 
 #[test]

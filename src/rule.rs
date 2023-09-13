@@ -6,9 +6,8 @@
 
 //! A set of sequents above an inference line.
 
-use crate::Sequent;
+use crate::{Multiset, Sequent};
 use core::hash::Hash;
-use std::collections::BTreeSet;
 
 /// A set of sequents above an inference line.
 #[derive(Clone, Debug)]
@@ -17,7 +16,7 @@ pub struct Rule<S: Sequent> {
     /// Name of the rule that allowed this inference.
     pub name: &'static str,
     /// Everything above the inference line: effectively next steps.
-    pub above: BTreeSet<S>,
+    pub above: Multiset<S>,
 }
 
 impl<S: Sequent> PartialEq for Rule<S> {

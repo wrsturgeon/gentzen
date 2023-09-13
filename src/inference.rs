@@ -67,7 +67,7 @@ impl<S: Sequent> Inference<S> {
     #[inline]
     #[allow(clippy::arithmetic_side_effects)]
     pub(crate) fn without_history(&self) -> String {
-        let mut iter = self.rule.above.iter();
+        let mut iter = self.rule.above.iter_repeat();
         iter.next().map_or_else(
             || "{ }".to_owned(),
             |first| {
@@ -83,8 +83,8 @@ impl<S: Sequent> Inference<S> {
     pub(crate) fn proven(&self, thunk: &Thunk<S>) -> bool {
         self.rule
             .above
-            .iter()
-            .all(|sequent| thunk.proven(sequent).is_some())
+            .iter_unique()
+            .all(|(sequent, _)| thunk.proven(sequent).is_some())
     }
 }
 
